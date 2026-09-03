@@ -11,10 +11,22 @@ public enum Preferences {
         case editRegion
         case showsCursor
         case didRequestScreenRecordingAccess
+        case enablePlugins
     }
 
+    /// Startup values for settings the user has never toggled, supplied by the config
+    /// file. Set once at launch, before anything reads a preference.
+    public struct Fallbacks {
+        public var isEditingRegion = true
+        public var showsCursor = true
+        public init() {}
+    }
+
+    public static var fallbacks = Fallbacks()
+
     /// `object(forKey:)` rather than `bool(forKey:)`: the latter cannot tell "absent"
-    /// from "false", and both of these default to true.
+    /// from "false", which is what lets a config default apply only until the user makes
+    /// their own choice in the menu.
     private static func bool(_ key: Key, default fallback: Bool) -> Bool {
         defaults.object(forKey: key.rawValue) as? Bool ?? fallback
     }
@@ -24,13 +36,21 @@ public enum Preferences {
     }
 
     public static var isEditingRegion: Bool {
-        get { bool(.editRegion, default: true) }
+        get { bool(.editRegion, default: fallbacks.isEditingRegion) }
         set { set(newValue, .editRegion) }
     }
 
     public static var showsCursor: Bool {
-        get { bool(.showsCursor, default: true) }
+        get { bool(.showsCursor, default: fallbacks.showsCursor) }
         set { set(newValue, .showsCursor) }
+    }
+
+    /// Off until asked for, and deliberately so. A plugin is arbitrary code running inside
+    /// a process that holds Screen Recording, and anything able to write a file in the
+    /// user's home can put one there. Loading them has to be a decision someone made.
+    public static var pluginsEnabled: Bool {
+        get { bool(.enablePlugins, default: false) }
+        set { set(newValue, .enablePlugins) }
     }
 
     /// macOS shows its Screen Recording dialog exactly once per app, ever, and offers no

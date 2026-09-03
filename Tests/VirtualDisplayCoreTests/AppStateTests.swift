@@ -21,6 +21,17 @@ final class AppStateTests: XCTestCase {
         XCTAssertTrue(state.wantsDockIcon)
     }
 
+    /// Screenshot and recording both grab the output window, so both need it to exist.
+    func testCapturingTheOutputNeedsTheOutputWindow() {
+        var state = AppState()
+        XCTAssertFalse(state.canCaptureOutput)
+        state.isMirroring = true
+        XCTAssertTrue(state.canCaptureOutput)
+        // Paused still counts: freezing the picture and grabbing a still is reasonable.
+        state.isPaused = true
+        XCTAssertTrue(state.canCaptureOutput)
+    }
+
     func testPauseStopsCaptureButKeepsTheWindowOnScreen() {
         var state = AppState()
         state.isMirroring = true

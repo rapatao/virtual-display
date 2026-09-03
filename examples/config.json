@@ -1,0 +1,15 @@
+{
+  "presets": [
+    { "name": "Notes strip", "width": 700, "height": 1000 },
+    { "name": "Terminal 16:9", "width": 1440, "height": 810 }
+  ],
+  "hotkeys": {
+    "ctrl-opt-cmd-b": "snap-to-window-below",
+    "ctrl-opt-cmd-1": "set-size?width=1280&height=720",
+    "ctrl-opt-cmd-c": "set-spot?name=center"
+  },
+  "defaults": {
+    "showsCursor": false,
+    "editRegion": true
+  }
+}

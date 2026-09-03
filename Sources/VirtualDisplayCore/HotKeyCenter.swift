@@ -12,8 +12,17 @@ public final class HotKeyCenter {
     /// Deep enough to avoid colliding with anything common.
     public static let defaultModifiers = UInt32(controlKey | optionKey | cmdKey)
 
-    private var handlers: [UInt32: () -> Void] = [:]
-    private var refs: [EventHotKeyRef?] = []
+    private struct Entry {
+        let ref: EventHotKeyRef?
+        let owner: Owner
+        let label: String
+        let handler: () -> Void
+    }
+
+    private var entries: [UInt32: Entry] = [:]
+    /// Shortcuts another app already holds. Kept so the diagnostics report can say so:
+    /// a shortcut that silently does nothing is otherwise unanswerable.
+    private var refused: [String] = []
     private var nextID: UInt32 = 1
     private var handlerInstalled = false
 
@@ -22,6 +31,8 @@ public final class HotKeyCenter {
     @discardableResult
     public func register(keyCode: Int,
                          modifiers: UInt32 = HotKeyCenter.defaultModifiers,
+                         owner: Owner = .app,
+                         label: String = "",
                          handler: @escaping () -> Void) -> Bool {
         installEventHandlerIfNeeded()
 
@@ -32,15 +43,34 @@ public final class HotKeyCenter {
         let hotKeyID = EventHotKeyID(signature: OSType(0x56_44_49_53), id: id)   // 'VDIS'
         let status = RegisterEventHotKey(UInt32(keyCode), modifiers, hotKeyID,
                                          GetApplicationEventTarget(), 0, &ref)
-        guard status == noErr else { return false }
+        guard status == noErr else {
+            if !label.isEmpty { refused.append(label) }
+            return false
+        }
 
-        handlers[id] = handler
-        refs.append(ref)
+        entries[id] = Entry(ref: ref, owner: owner, label: label, handler: handler)
         return true
     }
 
+    /// For the diagnostics report: what is live, and what another app took.
+    public func summary() -> [String] {
+        let live = entries.values.map(\.label).filter { !$0.isEmpty }.sorted()
+        return live.map { "\($0): active" }
+            + refused.sorted().map { "\($0): TAKEN by another app" }
+    }
+
+    /// Hands the key back to the system, so reloading a plugin that binds a different
+    /// shortcut does not leave the old one live for the rest of the session.
+    public func unregister(owner: Owner) {
+        for (id, entry) in entries where entry.owner == owner {
+            if let ref = entry.ref { UnregisterEventHotKey(ref) }
+            entries[id] = nil
+        }
+        if owner == .plugin { refused = [] }   // a reload re-reports its own failures
+    }
+
     fileprivate func fire(_ id: UInt32) {
-        handlers[id]?()
+        entries[id]?.handler()
     }
 
     private func installEventHandlerIfNeeded() {
