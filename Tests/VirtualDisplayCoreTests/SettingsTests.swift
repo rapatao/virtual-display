@@ -113,6 +113,30 @@ final class ShortcutRoundTripTests: XCTestCase {
     }
 }
 
+/// What the menu shows for a shortcut. A wrong mapping here is a menu item that either
+/// displays nothing or claims the wrong keys.
+final class MenuShortcutTests: XCTestCase {
+
+    func testLettersAndDigitsMapToTheirCharacter() throws {
+        let spec = try XCTUnwrap(KeySpec("ctrl-opt-cmd-s"))
+        XCTAssertEqual(spec.menuKey, "s")
+        XCTAssertEqual(spec.menuModifiers, [.control, .option, .command])
+    }
+
+    func testFunctionKeysAndArrowsUseAppKitsPrivateCharacters() throws {
+        let f5 = try XCTUnwrap(KeySpec("cmd-shift-f5"))
+        XCTAssertEqual(f5.menuKey.unicodeScalars.first?.value, UInt32(NSF5FunctionKey))
+        XCTAssertEqual(f5.menuModifiers, [.command, .shift])
+
+        let left = try XCTUnwrap(KeySpec("ctrl-cmd-left"))
+        XCTAssertEqual(left.menuKey.unicodeScalars.first?.value, UInt32(NSLeftArrowFunctionKey))
+    }
+
+    func testPunctuationStillShows() throws {
+        XCTAssertEqual(try XCTUnwrap(KeySpec("opt-cmd-.")).menuKey, ".")
+    }
+}
+
 final class CaptureFolderTests: XCTestCase {
 
     /// A folder chosen in settings is used, and cleared means back to ~/Pictures.

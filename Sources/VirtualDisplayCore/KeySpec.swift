@@ -57,6 +57,47 @@ public struct KeySpec: Equatable, Sendable {
         self.init(keyCode: code, modifiers: mask)
     }
 
+    /// What `NSMenuItem.keyEquivalentModifierMask` wants.
+    public var menuModifiers: NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if modifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
+        if modifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if modifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        if modifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        return flags
+    }
+
+    /// What `NSMenuItem.keyEquivalent` wants: the character, or one of AppKit's private
+    /// unicode points for the keys that have no character. Empty when the key has neither,
+    /// in which case the menu shows no shortcut and the global one still works.
+    public var menuKey: String {
+        let special: [Int: Int] = [
+            kVK_LeftArrow: NSLeftArrowFunctionKey, kVK_RightArrow: NSRightArrowFunctionKey,
+            kVK_UpArrow: NSUpArrowFunctionKey, kVK_DownArrow: NSDownArrowFunctionKey,
+            kVK_Home: NSHomeFunctionKey, kVK_End: NSEndFunctionKey,
+            kVK_PageUp: NSPageUpFunctionKey, kVK_PageDown: NSPageDownFunctionKey,
+            kVK_Delete: NSBackspaceCharacter, kVK_ForwardDelete: NSDeleteCharacter,
+            kVK_Return: NSCarriageReturnCharacter, kVK_Tab: NSTabCharacter,
+            kVK_Escape: 0x1B, kVK_Space: 0x20,
+        ]
+        if let point = special[keyCode], let scalar = Unicode.Scalar(point) {
+            return String(Character(scalar))
+        }
+        let functionKeys = [kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8,
+                            kVK_F9, kVK_F10, kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15,
+                            kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20]
+        if let index = functionKeys.firstIndex(of: keyCode),
+           let scalar = Unicode.Scalar(NSF1FunctionKey + index) {
+            return String(Character(scalar))
+        }
+        // Everything else is named by the character it types on a US layout, which is
+        // exactly what the spec table holds.
+        guard let name = Self.keyCodes.first(where: { $0.value == keyCode })?.key,
+              name.count == 1
+        else { return "" }
+        return name
+    }
+
     private static let modifiers: [String: UInt32] = [
         "cmd": UInt32(cmdKey), "command": UInt32(cmdKey),
         "ctrl": UInt32(controlKey), "control": UInt32(controlKey),

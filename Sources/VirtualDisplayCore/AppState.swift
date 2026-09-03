@@ -16,6 +16,8 @@ public struct AppState: Equatable, Sendable, Codable {
     /// Off until the user says otherwise: a plugin is arbitrary code with this app's
     /// Screen Recording grant.
     public var arePluginsEnabled = false
+    /// Session-only: the settings window is open.
+    public var isShowingSettings = false
 
     public init() {}
 
@@ -37,7 +39,10 @@ public struct AppState: Equatable, Sendable, Codable {
     /// Conferencing apps build their "share a window" list from applications that have a
     /// Dock presence, so an agent app's windows are never offered. Being regular exactly
     /// while the shareable window is up is what gets it listed.
-    public var wantsDockIcon: Bool { showsOutputWindow }
+    ///
+    /// The settings window counts too: without a Dock icon it cannot be reached from the
+    /// Dock or the app switcher, so pushing it behind something loses it.
+    public var wantsDockIcon: Bool { showsOutputWindow || isShowingSettings }
 
     /// Without the grant, mirroring is not merely refused on click: it is not offerable.
     public var canToggleMirroring: Bool { hasScreenRecordingAccess }

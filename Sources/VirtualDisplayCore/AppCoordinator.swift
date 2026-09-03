@@ -336,6 +336,14 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         environment.reloadPlugins = { [weak self] in self?.reloadPlugins() }
         environment.pluginErrors = { [weak self] in self?.lua.errors ?? [] }
         environment.commands = { [weak self] in self?.commands.names ?? [] }
+        environment.onVisibilityChanged = { [weak self] open in
+            guard let self else { return }
+            state.isShowingSettings = open
+            render()   // the Dock icon follows from the state, like everything else
+        }
+        environment.setShortcutsSuspended = { suspended in
+            HotKeyCenter.shared.setSuspended(suspended)
+        }
         return environment
     }
 
@@ -499,7 +507,12 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     /// Config shortcuts are registered first, so binding one of the default combinations
     /// to something else in `config.json` wins: the built-in below then simply fails to
     /// register and that action keeps its menu item.
+    ///
+    /// What ends up bound is pushed to the menu, so a rebound action shows its new keys
+    /// rather than the default it no longer answers to.
     private func registerHotKeys() {
+        var bound: [String: KeySpec] = [:]
+        defer { menu?.setShortcuts(bound) }
         // Config shortcuts name a command, with arguments in the URL query form:
         // "ctrl-opt-cmd-1": "set-size?width=1280&height=720"
         for (spec, command) in config.hotkeys {
@@ -516,7 +529,9 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
                                                           label: "\(spec) -> \(command)") { [weak self] in
                 self?.run(url: url)
             }
-            if !registered {
+            if registered {
+                bound[String(command.prefix(while: { $0 != "?" }))] = key
+            } else {
                 NSLog("virtual-display: shortcut \"%@\" is already taken by another app", spec)
             }
         }
@@ -534,6 +549,9 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             let registered = HotKeyCenter.shared.register(
                 keyCode: keyCode,
                 label: "ctrl-opt-cmd-\(key) -> \(command)") { [weak self] in self?.run(command) }
+            if registered {
+                bound[command] = KeySpec(keyCode: keyCode, modifiers: HotKeyCenter.defaultModifiers)
+            }
             // Not an error: either the config rebound it, or another app owns the
             // combination. Both are answerable only if we say so somewhere.
             if !registered {

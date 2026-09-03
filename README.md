@@ -314,9 +314,13 @@ none of them survives only until the next upgrade, and none of them needs a rebu
 | Tab | Does |
 | --- | --- |
 | Presets | Type a name and a size, or **Add Current Region Size** to capture the region as it is now. Rows are editable in place |
-| Shortcuts | Click a shortcut, press the keys. Escape cancels, Delete clears. Recording one for an action replaces its default |
+| Shortcuts | Click a shortcut, press the keys. Escape cancels, Delete clears. Recording one for an action replaces its default, and the menu updates to match |
 | Captures | Where screenshots and recordings are written, or **Default** for the system folders |
 | Plugins | The plugin switch, the folder, a reload button, and any load errors |
+
+While the window is open the app takes a Dock icon, so it can be found again after it goes
+behind something. Global shortcuts are handed back to the system while you are recording
+one, otherwise Carbon would run the action instead of capturing the keys.
 
 There is no Save button: every change is written to `config.json` immediately and applied
 without a relaunch. The window and the file are the same settings, so hand-editing still

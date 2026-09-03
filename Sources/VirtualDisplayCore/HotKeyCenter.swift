@@ -13,7 +13,9 @@ public final class HotKeyCenter {
     public static let defaultModifiers = UInt32(controlKey | optionKey | cmdKey)
 
     private struct Entry {
-        let ref: EventHotKeyRef?
+        var ref: EventHotKeyRef?
+        let keyCode: Int
+        let modifiers: UInt32
         let owner: Owner
         let label: String
         let handler: () -> Void
@@ -48,7 +50,8 @@ public final class HotKeyCenter {
             return false
         }
 
-        entries[id] = Entry(ref: ref, owner: owner, label: label, handler: handler)
+        entries[id] = Entry(ref: ref, keyCode: keyCode, modifiers: modifiers,
+                            owner: owner, label: label, handler: handler)
         return true
     }
 
@@ -68,6 +71,30 @@ public final class HotKeyCenter {
         }
         if owner == .plugin { refused = [] }   // a reload re-reports its own failures
     }
+
+    /// Hands every shortcut back to the system for as long as something else needs the
+    /// keys. A shortcut recorder is the case that needs it: Carbon consumes a registered
+    /// combination before any NSEvent monitor sees it, so recording the combination an
+    /// action already has would fire that action instead of recording it.
+    public func setSuspended(_ suspended: Bool) {
+        guard suspended != isSuspended else { return }
+        isSuspended = suspended
+
+        for (id, entry) in entries {
+            if suspended {
+                if let ref = entry.ref { UnregisterEventHotKey(ref) }
+                entries[id]?.ref = nil
+            } else {
+                var ref: EventHotKeyRef?
+                let hotKeyID = EventHotKeyID(signature: OSType(0x56_44_49_53), id: id)
+                let status = RegisterEventHotKey(UInt32(entry.keyCode), entry.modifiers, hotKeyID,
+                                                 GetApplicationEventTarget(), 0, &ref)
+                entries[id]?.ref = status == noErr ? ref : nil
+            }
+        }
+    }
+
+    private var isSuspended = false
 
     fileprivate func fire(_ id: UInt32) {
         entries[id]?.handler()

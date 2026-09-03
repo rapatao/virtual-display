@@ -117,6 +117,27 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         setPresets(presets)
     }
 
+    /// The menu shows whatever shortcut is actually registered, so rebinding one in
+    /// settings is reflected here instead of leaving the old combination on display.
+    /// A command with no entry loses its key equivalent.
+    public func setShortcuts(_ specs: [String: KeySpec]) {
+        let items: [String: NSMenuItem] = [
+            "toggle-mirroring": mirroringItem,
+            "toggle-pause": pauseItem,
+            "screenshot": screenshotItem,
+            "toggle-recording": recordItem,
+        ]
+        for (command, item) in items {
+            guard let spec = specs[command] else {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+                continue
+            }
+            item.keyEquivalent = spec.menuKey
+            item.keyEquivalentModifierMask = spec.menuModifiers
+        }
+    }
+
     /// Rebuilt rather than built once: the config file and any plugin can add presets,
     /// and a plugin reload has to be able to take them away again.
     public func setPresets(_ presets: [RegionSize]) {

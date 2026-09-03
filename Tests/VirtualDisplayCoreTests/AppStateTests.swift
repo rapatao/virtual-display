@@ -32,6 +32,18 @@ final class AppStateTests: XCTestCase {
         XCTAssertTrue(state.canCaptureOutput)
     }
 
+    /// Without a Dock icon the settings window cannot be reached from the Dock or the
+    /// app switcher, so pushing it behind something loses it.
+    func testTheSettingsWindowTakesADockIcon() {
+        var state = AppState()
+        XCTAssertFalse(state.wantsDockIcon)
+        state.isShowingSettings = true
+        XCTAssertTrue(state.wantsDockIcon)
+        // And closing it goes back to tray-only, unless mirroring keeps it.
+        state.isShowingSettings = false
+        XCTAssertFalse(state.wantsDockIcon)
+    }
+
     func testPauseStopsCaptureButKeepsTheWindowOnScreen() {
         var state = AppState()
         state.isMirroring = true

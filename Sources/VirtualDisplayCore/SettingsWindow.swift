@@ -21,6 +21,12 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
         public var pluginErrors: () -> [String] = { [] }
         /// Command names to offer as shortcut targets.
         public var commands: () -> [String] = { [] }
+        /// Open or closed. The app takes a Dock icon while it is open, so the window can
+        /// be found again after it goes behind something.
+        public var onVisibilityChanged: (Bool) -> Void = { _ in }
+        /// Hands the global shortcuts back to the system while recording one, so Carbon
+        /// does not eat the keystroke and run the action instead.
+        public var setShortcutsSuspended: (Bool) -> Void = { _ in }
         public init() {}
     }
 
@@ -57,6 +63,7 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
 
         // An accessory app has no menu bar of its own, so without activating, the window
         // opens behind whatever you were using and looks like nothing happened.
+        environment.onVisibilityChanged(true)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
@@ -64,6 +71,8 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
     public func windowWillClose(_ notification: Notification) {
         window = nil   // rebuilt on next open, so it always shows current state
         model = nil
+        environment.setShortcutsSuspended(false)   // in case it closed mid-recording
+        environment.onVisibilityChanged(false)
     }
 }
 
@@ -264,7 +273,8 @@ private struct ShortcutsTab: View {
                                 spec: model.config.hotkeys.first { $0.value == command }?.key,
                                 placeholder: fallback,
                                 onRecord: { model.bind($0, to: command) },
-                                onClear: { spec in model.unbind(spec) })
+                                onClear: { spec in model.unbind(spec) },
+                                setSuspended: { model.environment.setShortcutsSuspended($0) })
                         }
                     }
 
@@ -295,18 +305,23 @@ private struct ShortcutField: NSViewRepresentable {
     let placeholder: String
     let onRecord: (String) -> Void
     let onClear: (String) -> Void
+    let setSuspended: (Bool) -> Void
 
     func makeNSView(context: Context) -> ShortcutRecorder {
         let view = ShortcutRecorder()
-        view.onRecord = onRecord
-        view.onClear = { if let spec { onClear(spec) } }
+        configure(view)
         return view
     }
 
     func updateNSView(_ view: ShortcutRecorder, context: Context) {
+        configure(view)
+        view.display(spec: spec, placeholder: placeholder)
+    }
+
+    private func configure(_ view: ShortcutRecorder) {
         view.onRecord = onRecord
         view.onClear = { if let spec { onClear(spec) } }
-        view.display(spec: spec, placeholder: placeholder)
+        view.setSuspended = setSuspended
     }
 }
 
@@ -314,6 +329,7 @@ private struct ShortcutField: NSViewRepresentable {
 final class ShortcutRecorder: NSButton {
     var onRecord: ((String) -> Void)?
     var onClear: (() -> Void)?
+    var setSuspended: ((Bool) -> Void)?
 
     private var monitor: Any?
     private var recording = false {
@@ -346,6 +362,9 @@ final class ShortcutRecorder: NSButton {
         guard !recording else { return stop() }
         recording = true
         title = "Press keys..."
+        // Carbon takes a registered combination before any monitor sees it, so recording
+        // a key an action already holds would run that action instead.
+        setSuspended?(true)
 
         // A local monitor, so the keystroke never reaches the rest of the app: recording
         // cmd-q must not quit.
@@ -374,6 +393,7 @@ final class ShortcutRecorder: NSButton {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         recording = false
+        setSuspended?(false)
     }
 }
 
