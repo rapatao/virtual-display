@@ -144,7 +144,9 @@ ad-hoc release re-asks for permission. Any real certificate fixes that.
 
 ## Usage
 
-The app lives entirely in the menu bar. There is no Dock icon and no app menu.
+The app lives in the menu bar. A Dock icon appears only while the output window is open,
+because conferencing apps build their "share a window" list from applications that have a
+Dock presence; close the window and it goes back to tray-only.
 
 1. Click the menu bar icon and enable **Mirroring**. Grant Screen Recording if asked, then
    reopen the app.
@@ -165,6 +167,7 @@ The app lives entirely in the menu bar. There is no Dock icon and no app menu.
 | **Edit Region** | On: the frame is red, draggable and resizable. Off: green and click-through. |
 | **Region Presets** | Size and position presets, see below. |
 | **Show Output Window** | Shows or hides the window you share in the meeting. |
+| **Copy Diagnostics** | Copies a report on screen state to the clipboard and displays it. Same output as `--doctor`. |
 | **Quit Virtual Display** | `Cmd Q` |
 
 ### Menu bar icon states
@@ -289,7 +292,19 @@ icon is regenerated only when `makeicon.swift` is newer than `VirtualDisplay.icn
 Settings > Privacy & Security > Screen & System Audio Recording, then relaunch. macOS only
 applies the change on the next launch.
 
-**"Virtual Display" is missing from the meeting's share list.** Two causes:
+**"Virtual Display" is missing from the meeting's share list.** Collect the facts first:
+tray icon > **Copy Diagnostics**, which puts a report on the clipboard and shows it on
+screen. The same report is available without the GUI:
+
+```sh
+/Applications/VirtualDisplay.app/Contents/MacOS/VirtualDisplay --doctor
+```
+
+`on-screen normal windows` is the set a picker draws from. If the output window is listed
+there, the exclusion is on the conferencing app's side. If it only appears under `all
+windows incl. off-screen`, it is positioned outside every display.
+
+Common causes:
 
 - It is a **window**, not a display. In Meet, Zoom or Slack, pick the **Window** tab. It
   will never appear under Entire Screen / Display.

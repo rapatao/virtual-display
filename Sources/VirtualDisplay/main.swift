@@ -70,6 +70,68 @@ enum Geometry {
     }
 }
 
+// MARK: - Diagnostics
+
+/// Why a window is or is not offered by a conferencing app's share picker. Works both
+/// in-process (the Copy Diagnostics menu item) and from a second process launched with
+/// --list-windows, because it looks the app up through NSWorkspace either way.
+enum Diagnostics {
+    static func report() -> String {
+        var out: [String] = ["Virtual Display diagnostics"]
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        out.append("build: \(version ?? "unknown")")
+        out.append("macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        out.append("screen recording (this process): \(CGPreflightScreenCaptureAccess())")
+
+        let apps = NSWorkspace.shared.runningApplications.filter {
+            $0.bundleIdentifier == "com.rapatao.virtual-display"
+        }
+        out.append("")
+        if apps.isEmpty {
+            out.append("Virtual Display is NOT running.")
+        }
+        for a in apps {
+            let policy: String
+            switch a.activationPolicy {
+            case .regular: policy = "regular (Dock icon)"
+            case .accessory: policy = "accessory (tray only)"
+            case .prohibited: policy = "prohibited"
+            @unknown default: policy = "unknown"
+            }
+            out.append("running: pid \(a.processIdentifier), policy: \(policy)")
+            out.append("bundle:  \(a.bundleURL?.path ?? "?")")
+        }
+
+        let pids = Set(apps.map { $0.processIdentifier })
+        func dump(_ label: String, _ options: CGWindowListOption) {
+            let all = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+            let mine = all.filter { pids.contains(($0[kCGWindowOwnerPID as String] as? Int32) ?? -1) }
+            out.append("")
+            out.append("\(label): \(mine.count)")
+            for w in mine {
+                let b = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+                let num = { (k: String) in Int((b[k] as? Double) ?? 0) }
+                out.append("  layer=\(w[kCGWindowLayer as String] as? Int ?? -1)"
+                    + " onscreen=\(w[kCGWindowIsOnscreen as String] as? Bool ?? false)"
+                    + " alpha=\(w[kCGWindowAlpha as String] as? Double ?? -1)"
+                    + " at \(num("X")),\(num("Y"))"
+                    + " size \(num("Width"))x\(num("Height"))"
+                    + " title=\(w[kCGWindowName as String] as? String ?? "<not readable>")")
+            }
+        }
+        // A picker only offers the first set. The second tells off-screen apart from absent.
+        dump("on-screen normal windows (what a picker lists)", [.optionOnScreenOnly, .excludeDesktopElements])
+        dump("all windows incl. off-screen", [.optionAll, .excludeDesktopElements])
+
+        out.append("")
+        out.append("screens:")
+        for s in NSScreen.screens {
+            out.append("  \(s.frame) visible \(s.visibleFrame)")
+        }
+        return out.joined(separator: "\n")
+    }
+}
+
 // MARK: - Region overlay view
 
 final class BorderView: NSView {
@@ -228,6 +290,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         menu.addItem(presetItem)
         outputItem.target = self
         menu.addItem(outputItem)
+
+        menu.addItem(.separator())
+        let diag = NSMenuItem(title: "Copy Diagnostics", action: #selector(copyDiagnostics), keyEquivalent: "")
+        diag.target = self
+        menu.addItem(diag)
         menu.addItem(.separator())
         menu.delegate = self
         menu.autoenablesItems = false   // otherwise AppKit overrides our isEnabled flags
@@ -386,6 +453,19 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         isEditing = editing
         UserDefaults.standard.set(editing, forKey: Self.editingKey)
         syncUI()
+    }
+
+    @objc private func copyDiagnostics() {
+        let report = Diagnostics.report()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(report, forType: .string)
+
+        let alert = NSAlert()
+        alert.messageText = "Diagnostics copied to the clipboard"
+        alert.informativeText = report
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     @objc private func toggleOutput() {
@@ -604,25 +684,10 @@ if CommandLine.arguments.contains("--selftest") {
     exit(0)
 }
 
-// Prints the on-screen window list the way a conferencing app's window picker builds
-// one, so "it is not in the list" can be answered with data instead of guesswork.
-if CommandLine.arguments.contains("--list-windows") {
-    let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
-                                          kCGNullWindowID) as? [[String: Any]] ?? []
-    var listed = 0
-    for w in info {
-        let layer = w[kCGWindowLayer as String] as? Int ?? -1
-        guard layer == 0 else { continue }   // pickers only offer normal-level windows
-        let owner = w[kCGWindowOwnerName as String] as? String ?? "?"
-        let title = w[kCGWindowName as String] as? String ?? "<no title readable>"
-        let bounds = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
-        let width = bounds["Width"] as? Double ?? 0
-        let height = bounds["Height"] as? Double ?? 0
-        print("\(owner) | \(title) | \(Int(width))x\(Int(height))")
-        listed += 1
-    }
-    print("\n\(listed) normal-level windows on screen.")
-    print("Window titles read as <no title readable> unless this terminal has Screen Recording access.")
+// Answers "why is it not in the share list" with data instead of guesswork.
+// Same report as the Copy Diagnostics menu item.
+if CommandLine.arguments.contains("--doctor") || CommandLine.arguments.contains("--list-windows") {
+    print(Diagnostics.report())
     exit(0)
 }
 
