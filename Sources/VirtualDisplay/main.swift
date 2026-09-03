@@ -111,6 +111,12 @@ enum Diagnostics {
             for w in mine {
                 let b = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
                 let num = { (k: String) in Int((b[k] as? Double) ?? 0) }
+                // Layer 0 is the output window, the only one a picker can ever offer.
+                // The region frame is .floating, so it sits at layer 3.
+                let layer = w[kCGWindowLayer as String] as? Int ?? -1
+                let role = layer == 0 ? "OUTPUT WINDOW (the shareable one)"
+                                      : "region frame (never shareable)"
+                out.append("  \(role)")
                 out.append("  layer=\(w[kCGWindowLayer as String] as? Int ?? -1)"
                     + " onscreen=\(w[kCGWindowIsOnscreen as String] as? Bool ?? false)"
                     + " alpha=\(w[kCGWindowAlpha as String] as? Double ?? -1)"
@@ -182,6 +188,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     private let editItem = NSMenuItem(title: "Edit Region", action: #selector(toggleEdit), keyEquivalent: "")
     private let outputItem = NSMenuItem(title: "Show Output Window", action: #selector(toggleOutput), keyEquivalent: "")
     private let accessItem = NSMenuItem(title: "Allow Screen Recording...", action: #selector(requestAccess), keyEquivalent: "")
+    private let hintItem = NSMenuItem(title: "Output window hidden - nothing to share yet",
+                                      action: nil, keyEquivalent: "")
     private let presetItem = NSMenuItem(title: "Region Presets", action: nil, keyEquivalent: "")
 
     /// Region sizes in points. On a 2x display 960x540 pt is exactly the 1920x1080 px
@@ -282,6 +290,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     private func installStatusItem() {
         let menu = NSMenu()
 
+        hintItem.isEnabled = false   // a note, not a command
+        menu.addItem(hintItem)
         for item in [accessItem, enabledItem, editItem] {
             item.target = self
             menu.addItem(item)
@@ -430,6 +440,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         // The output window is never shown or hidden as a side effect of anything else;
         // only toggleOutput() moves it. Enabling mirroring must not pop it up.
         outputItem.state = outputWindow.isVisible ? .on : .off
+        // Mirroring with the output window hidden captures into a window no meeting can
+        // see. The region frame is still on screen, which makes it look like it is
+        // working, so say so rather than leaving it silent.
+        hintItem.isHidden = !(isEnabled && !outputWindow.isVisible)
         syncActivationPolicy()
 
         borderView.isEditing = isEditing

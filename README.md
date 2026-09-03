@@ -304,6 +304,17 @@ screen. The same report is available without the GUI:
 there, the exclusion is on the conferencing app's side. If it only appears under `all
 windows incl. off-screen`, it is positioned outside every display.
 
+The app has **two** windows and they are easy to confuse:
+
+| Window | Layer | Shareable |
+| --- | --- | --- |
+| Region frame (the red/green rectangle) | 3, floating | **Never.** Pickers only offer layer 0, and it is excluded from capture on purpose |
+| Output window (titled Virtual Display) | 0 | **Yes.** This is the one to pick in the meeting |
+
+Seeing the region frame on screen does not mean the output window is open. Check the
+report: the output window is labelled, and it must appear under `on-screen normal windows`
+with `onscreen=true`.
+
 Common causes:
 
 - It is a **window**, not a display. In Meet, Zoom or Slack, pick the **Window** tab. It
