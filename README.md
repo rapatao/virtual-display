@@ -702,3 +702,15 @@ Common causes:
   **Mirroring** is on. Enable mirroring, then reopen the share picker.
 - Never minimise it. macOS only enumerates on-screen windows, and a minimised one is not
   one.
+
+---
+
+## License
+
+Copyright (C) 2026 Luiz Henrique Rapatao.
+
+GNU General Public License v3.0 or later. See [LICENSE](LICENSE).
+
+Forks and derivative works must ship their source under the same license. Note that the
+Mac App Store's terms are incompatible with the GPL, so a GPL-licensed build cannot be
+distributed there.
