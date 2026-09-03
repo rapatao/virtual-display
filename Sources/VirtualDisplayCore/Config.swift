@@ -21,10 +21,17 @@ public enum ConfigPaths {
 /// stray comma leaves the user nothing to fix it with.
 public struct Config: Codable, Equatable, Sendable {
 
+    /// `var`, because the settings window edits these in place.
     public struct Preset: Codable, Equatable, Sendable {
-        public let name: String
-        public let width: Double
-        public let height: Double
+        public var name: String
+        public var width: Double
+        public var height: Double
+
+        public init(name: String, width: Double, height: Double) {
+            self.name = name
+            self.width = width
+            self.height = height
+        }
     }
 
     public struct Defaults: Codable, Equatable, Sendable {
@@ -72,8 +79,12 @@ public struct Config: Codable, Equatable, Sendable {
         try encoder.encode(self).write(to: url, options: .atomic)
     }
 
+    /// Half-typed rows are normal while the settings window is open, so a preset only
+    /// reaches the menu once it describes a size that can actually be applied.
     public var regionSizes: [RegionSize] {
-        presets.map { RegionSize(name: $0.name, size: CGSize(width: $0.width, height: $0.height)) }
+        presets
+            .filter { $0.width > 0 && $0.height > 0 && !$0.name.isEmpty }
+            .map { RegionSize(name: $0.name, size: CGSize(width: $0.width, height: $0.height)) }
     }
 
     /// The commands the config binds a shortcut to, ignoring any arguments. A default

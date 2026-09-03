@@ -113,6 +113,13 @@ final class SettingsModel: ObservableObject {
         commit()
     }
 
+    /// A blank row to type into. 1280x720 rather than zeros, so a row left untouched is
+    /// still a usable preset rather than one the menu quietly ignores.
+    func addPreset() {
+        config.presets.append(Config.Preset(name: "New preset", width: 1280, height: 720))
+        commit()
+    }
+
     func removePresets(_ offsets: IndexSet) {
         config.presets.remove(atOffsets: offsets)
         commit()
@@ -176,23 +183,23 @@ private struct PresetsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sizes added here join the built-in ones in Region Presets.")
+            Text("Sizes added here join the built-in ones in Region Presets. "
+                 + "Type a name and a size, or capture the region as it is now.")
                 .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             List(selection: $selected) {
-                ForEach(Array(model.config.presets.enumerated()), id: \.offset) { index, preset in
-                    HStack {
-                        Text(preset.name)
-                        Spacer()
-                        Text("\(Int(preset.width)) x \(Int(preset.height))")
-                            .foregroundStyle(.secondary).monospacedDigit()
-                    }
-                    .tag(index)
+                ForEach(model.config.presets.indices, id: \.self) { index in
+                    PresetRow(preset: Binding(get: { model.config.presets[index] },
+                                              set: { model.config.presets[index] = $0
+                                                     model.commit() }))
+                        .tag(index)
                 }
             }
             .border(.separator)
 
             HStack {
+                Button("Add Preset") { model.addPreset() }
                 Button("Add Current Region Size") { model.addCurrentRegionAsPreset() }
                 Button("Remove") {
                     model.removePresets(IndexSet(selected))
@@ -202,6 +209,30 @@ private struct PresetsTab: View {
                 Spacer()
             }
         }
+    }
+}
+
+/// One editable preset. Every keystroke writes the file: it is a few hundred bytes
+/// written atomically, and the alternative is edits that vanish when the window closes.
+private struct PresetRow: View {
+    @Binding var preset: Config.Preset
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField("Name", text: $preset.name)
+                .textFieldStyle(.roundedBorder)
+            TextField("Width", value: $preset.width, format: .number.grouping(.never))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 70)
+                .multilineTextAlignment(.trailing)
+            Text("x").foregroundStyle(.secondary)
+            TextField("Height", value: $preset.height, format: .number.grouping(.never))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 70)
+                .multilineTextAlignment(.trailing)
+            Text("pt").foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
     }
 }
 

@@ -48,6 +48,26 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(saved.count, 1, "every edit writes the file; there is no Save button")
     }
 
+    func testAddingABlankPresetGivesAUsableStartingPoint() {
+        let model = model()
+        model.addPreset()
+        XCTAssertEqual(model.config.presets.first?.width, 1280)
+        XCTAssertEqual(model.config.presets.first?.height, 720)
+        // A row left untouched must still be a preset the menu can apply.
+        XCTAssertEqual(model.config.regionSizes.count, 1)
+    }
+
+    /// Typing a name empties the field for a moment, and a width starts at nothing. Those
+    /// rows must not reach the menu, and must not be deleted either.
+    func testHalfTypedPresetsStayInTheFileButOutOfTheMenu() {
+        var config = Config()
+        config.presets = [Config.Preset(name: "", width: 0, height: 0),
+                          Config.Preset(name: "Notes", width: 700, height: 1000)]
+        let model = model(config)
+        XCTAssertEqual(model.config.presets.count, 2)
+        XCTAssertEqual(model.config.regionSizes.map(\.name), ["Notes"])
+    }
+
     /// Binding a second shortcut to an action must move it, not leave two live.
     func testRebindingReplacesThePreviousShortcut() {
         let model = model()

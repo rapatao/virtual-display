@@ -313,7 +313,7 @@ none of them survives only until the next upgrade, and none of them needs a rebu
 
 | Tab | Does |
 | --- | --- |
-| Presets | Lists your custom sizes; **Add Current Region Size** turns the region you just dragged into a named preset |
+| Presets | Type a name and a size, or **Add Current Region Size** to capture the region as it is now. Rows are editable in place |
 | Shortcuts | Click a shortcut, press the keys. Escape cancels, Delete clears. Recording one for an action replaces its default |
 | Captures | Where screenshots and recordings are written, or **Default** for the system folders |
 | Plugins | The plugin switch, the folder, a reload button, and any load errors |
