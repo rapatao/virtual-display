@@ -39,6 +39,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <!-- The automation channel: open 'virtualdisplay://toggle-mirroring' from anything. -->
+    <key>CFBundleURLTypes</key>
+    <array><dict>
+        <key>CFBundleURLName</key><string>com.rapatao.virtual-display</string>
+        <key>CFBundleURLSchemes</key><array><string>virtualdisplay</string></array>
+    </dict></array>
 </dict>
 </plist>
 PLIST
@@ -53,8 +59,34 @@ if [ -z "${VD_SIGN_ID:-}" ]; then
     codesign --force --sign - "$APP"
     echo "built $APP (ad-hoc signed)"
 else
+    # macOS stores an app's designated requirement when a permission is granted and
+    # matches later builds against it. The default requirement for an Apple-issued
+    # certificate names the leaf certificate, so the Screen Recording grant survives a
+    # rebuild but dies the day the certificate is renewed, or when Development is traded
+    # for Developer ID. Pinning the team instead outlives both: same team, same grant, so
+    # neither you nor anyone who installed a release has to allow it twice.
+    # VD_TEAM_ID short-circuits the lookup, for a keychain the search list does not cover.
+    # The `|| true` is load-bearing: under `set -o pipefail` a certificate that is not in
+    # the keychain would otherwise abort the script here, right after a successful build
+    # and without printing anything.
+    TEAM="${VD_TEAM_ID:-$(security find-certificate -c "$VD_SIGN_ID" -p 2>/dev/null \
+            | openssl x509 -noout -subject 2>/dev/null \
+            | sed -n 's/.*OU *= *\([A-Z0-9]*\).*/\1/p' || true)}"
+
+    REQUIREMENT=()
+    if [ -n "$TEAM" ]; then
+        # "anchor apple generic" needs an Apple-issued chain, which a self-signed
+        # certificate does not have; those keep the default requirement. The
+        # "designated =>" prefix is not optional: without it codesign rejects the text.
+        REQUIREMENT=(-r="designated => identifier \"com.rapatao.virtual-display\" and anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"")
+    else
+        echo "note: no team found for \"$VD_SIGN_ID\"; using codesign's default requirement." >&2
+        echo "      Self-signed is expected here. For an Apple certificate, set VD_TEAM_ID." >&2
+    fi
+
     # Hardened runtime and a secure timestamp are required for notarization, and
     # neither is available to an ad-hoc signature.
-    codesign --force --options runtime --timestamp --sign "$VD_SIGN_ID" "$APP"
-    echo "built $APP (signed: $VD_SIGN_ID)"
+    codesign --force --options runtime --timestamp "${REQUIREMENT[@]}" \
+             --sign "$VD_SIGN_ID" "$APP"
+    echo "built $APP (signed: $VD_SIGN_ID${TEAM:+, team $TEAM})"
 fi
