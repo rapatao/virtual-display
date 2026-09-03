@@ -164,11 +164,25 @@ presence; turn mirroring off and it goes back to tray-only.
 | Item | Behaviour |
 | --- | --- |
 | **Allow Screen Recording...** | Only visible when permission is missing. Raises the system prompt on first use, and deep-links to the correct Settings pane afterwards. |
-| **Mirroring** | Starts and stops capture. Disabled while permission is missing. |
+| **Mirroring** | Starts and stops capture, and opens/closes the output window. `Ctrl Opt Cmd M`. Disabled while permission is missing. |
+| **Pause** | Blanks the share without closing the output window, so the meeting keeps it selected. `Ctrl Opt Cmd P`. |
 | **Edit Region** | On: the frame is red, draggable and resizable. Off: green and click-through. |
 | **Region Presets** | Size and position presets, see below. |
+| **Show Cursor in Share** | Whether your pointer appears in what you share. |
+| **Launch at Login** | Registers the app with macOS via `SMAppService`. |
 | **Copy Diagnostics** | Copies a report on screen state to the clipboard and displays it. Same output as `--doctor`. |
 | **Quit Virtual Display** | `Cmd Q` |
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl Opt Cmd M` | Toggle mirroring |
+| `Ctrl Opt Cmd P` | Toggle pause |
+
+These are global: they work while another app is focused. They are registered through
+Carbon's `RegisterEventHotKey`, which unlike an `NSEvent` global monitor needs no
+Accessibility permission.
 
 ### Menu bar icon states
 
@@ -176,6 +190,7 @@ presence; turn mirroring off and it goes back to tray-only.
 | --- | --- |
 | Two rectangles | Mirroring is live |
 | Two rectangles, struck through | Mirroring is off |
+| Pause symbol | Mirroring is on but paused |
 | Warning triangle | Screen Recording permission is missing |
 
 ### Region presets
@@ -191,6 +206,9 @@ Sizes are in points and grow downward from the frame's current top edge.
 
 Positions: **Center**, **Top Left**, **Top Right**, **Bottom Left**, **Bottom Right**,
 relative to the visible area of the screen the frame is on (excluding menu bar and Dock).
+
+**Snap to Window Below** sizes the region to the frontmost ordinary window under the
+region's centre, which is the fiddly part of setup if done by hand.
 
 Presets are clamped to the screen, so the frame can never be parked off-screen or made
 larger than the display it sits on. Choosing a preset while the frame is hidden turns
@@ -213,7 +231,8 @@ actually share. Resize it freely; it stays 16:9 and may be left behind other win
 
 **Turning mirroring off ends your share.** The window it was offering goes away, so the
 meeting stops sharing rather than showing a frozen frame. Re-enable and pick the window
-again to resume.
+again to resume. To hide something mid-call, use **Pause** instead: capture stops and the
+share goes black, but the window stays on screen and stays selected.
 
 **Never minimise the output window.** A minimised window reports `onscreen=false` and is
 dropped from every share picker, which looks exactly like the app being broken. It has no
@@ -238,9 +257,12 @@ Stored in `UserDefaults` under `com.rapatao.virtual-display`:
 | `NSWindow Frame RegionWindow` | Region frame position and size |
 | `NSWindow Frame OutputWindow` | Output window position and size |
 | `editRegion` | Edit Region toggle |
+| `showsCursor` | Show Cursor in Share toggle |
 | `didRequestScreenRecordingAccess` | Whether the system permission prompt has been shown |
 
-Mirroring is deliberately **not** persisted; the app always starts with capture off.
+Mirroring and pause are deliberately **not** persisted; the app always starts with capture
+off and unpaused. Launch at Login lives in macOS, not here, so `defaults delete` will not
+clear it - turn it off from the menu.
 
 Inspect or reset:
 

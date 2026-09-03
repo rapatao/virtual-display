@@ -1,7 +1,9 @@
 import AppKit
 import AVFoundation
+import Carbon.HIToolbox
 import CoreMedia
 import ScreenCaptureKit
+import ServiceManagement
 
 // MARK: - Geometry
 
@@ -15,6 +17,15 @@ enum Geometry {
                            displayOrigin: CGPoint) -> CGRect {
         CGRect(x: r.minX - displayOrigin.x,
                y: primaryHeight - r.maxY - displayOrigin.y,
+               width: r.width,
+               height: r.height)
+    }
+
+    /// Inverse of `sourceRect`: CGWindowList reports window bounds in display space
+    /// (y-down from the primary screen's top), and NSWindow.setFrame wants AppKit space.
+    static func appKitRect(fromCG r: CGRect, primaryHeight: CGFloat) -> CGRect {
+        CGRect(x: r.minX,
+               y: primaryHeight - r.maxY,
                width: r.width,
                height: r.height)
     }
@@ -65,6 +76,18 @@ enum Geometry {
         // shrink-first order the origin clamp would produce a negative x.
         let big = clamp(CGRect(x: 500, y: 500, width: 3000, height: 2000), into: vis)
         precondition(big == vis, "oversized clamp wrong: \(big)")
+
+        // A window 100pt below the top of a 1440pt screen sits 1140pt up in AppKit space.
+        let win = appKitRect(fromCG: CGRect(x: 300, y: 100, width: 800, height: 200),
+                             primaryHeight: 1440)
+        precondition(win == CGRect(x: 300, y: 1140, width: 800, height: 200), "cg->appkit wrong: \(win)")
+
+        // The two conversions must be exact inverses, or snapping drifts every use.
+        let start = CGRect(x: 120, y: 340, width: 640, height: 400)
+        let round = appKitRect(fromCG: sourceRect(appKitRect: start, primaryHeight: 1440,
+                                                  displayOrigin: .zero),
+                               primaryHeight: 1440)
+        precondition(round == start, "round trip wrong: \(round)")
 
         print("selftest OK")
     }
@@ -157,6 +180,23 @@ final class BorderView: NSView {
     }
 }
 
+// MARK: - Hot key callback
+
+/// Must be a free function: Carbon takes a C function pointer, which cannot capture self.
+private func hotKeyHandler(_ next: EventHandlerCallRef?,
+                           _ event: EventRef?,
+                           _ context: UnsafeMutableRawPointer?) -> OSStatus {
+    var id = EventHotKeyID()
+    GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                      EventParamType(typeEventHotKeyID), nil,
+                      MemoryLayout<EventHotKeyID>.size, nil, &id)
+    let raw = id.id
+    DispatchQueue.main.async {
+        MainActor.assumeIsolated { App.shared?.handleHotKey(raw) }
+    }
+    return noErr
+}
+
 // MARK: - App
 
 @MainActor
@@ -175,6 +215,12 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     private var isEditing = UserDefaults.standard.object(forKey: App.editingKey) as? Bool ?? true
     // Off at launch: the app comes up as a tray icon only, no windows, no capture.
     private var isEnabled = false
+    /// Session-only, never persisted: a pause is something you undo within a meeting.
+    /// Suppresses capture while leaving the output window on screen, so the meeting
+    /// keeps the window selected and the share survives.
+    private var isPaused = false
+    private static let cursorKey = "showsCursor"
+    private var showsCursor = UserDefaults.standard.object(forKey: App.cursorKey) as? Bool ?? true
     /// Re-read on every menu open, so revoking access mid-session greys the toggle out.
     private var hasAccess = CGPreflightScreenCaptureAccess()
     /// macOS shows its Screen Recording dialog exactly once per app, ever. There is no
@@ -187,6 +233,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     private let editItem = NSMenuItem(title: "Edit Region", action: #selector(toggleEdit), keyEquivalent: "")
     private let accessItem = NSMenuItem(title: "Allow Screen Recording...", action: #selector(requestAccess), keyEquivalent: "")
     private let presetItem = NSMenuItem(title: "Region Presets", action: nil, keyEquivalent: "")
+    private let pauseItem = NSMenuItem(title: "Pause", action: #selector(togglePause), keyEquivalent: "")
+    private let cursorItem = NSMenuItem(title: "Show Cursor in Share", action: #selector(toggleCursor), keyEquivalent: "")
+    private let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLoginItem), keyEquivalent: "")
+
+    /// Set once so the C hot key callback, which cannot capture context, can find us.
+    static weak var shared: App?
+    private var hotKeys: [EventHotKeyRef?] = []
 
     /// Region sizes in points. On a 2x display 960x540 pt is exactly the 1920x1080 px
     /// output canvas, so it mirrors 1:1 with no resampling.
@@ -274,20 +327,62 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         // Neither is ordered on screen, so the app is still tray-only at launch.
         _ = regionWindow
         _ = outputWindow
+        App.shared = self
         installMainMenu()
         // Permission is checked on first enable so launching never puts a dialog up.
         installStatusItem()
+        registerHotKeys()
+    }
+
+    /// Carbon hot keys, not an NSEvent global monitor: RegisterEventHotKey works without
+    /// Accessibility permission, which is the whole reason to prefer the older API here.
+    private func registerHotKeys() {
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                 eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), hotKeyHandler, 1, &spec, nil, nil)
+
+        // Control-Option-Command is deep enough to avoid colliding with anything common.
+        let mods = UInt32(controlKey | optionKey | cmdKey)
+        for (id, key) in [(HotKey.mirroring, kVK_ANSI_M), (HotKey.pause, kVK_ANSI_P)] {
+            var ref: EventHotKeyRef?
+            let hotKeyID = EventHotKeyID(signature: OSType(0x56_44_49_53), id: id.rawValue)
+            RegisterEventHotKey(UInt32(key), mods, hotKeyID, GetApplicationEventTarget(), 0, &ref)
+            hotKeys.append(ref)
+        }
+    }
+
+    enum HotKey: UInt32 {
+        case mirroring = 1
+        case pause = 2
+    }
+
+    func handleHotKey(_ raw: UInt32) {
+        switch HotKey(rawValue: raw) {
+        case .mirroring: toggleEnabled()
+        case .pause: togglePause()
+        case nil: break
+        }
     }
 
     private func installStatusItem() {
         let menu = NSMenu()
 
-        for item in [accessItem, enabledItem, editItem] {
+        enabledItem.keyEquivalent = "m"
+        pauseItem.keyEquivalent = "p"
+        for item in [enabledItem, pauseItem] {
+            item.keyEquivalentModifierMask = [.control, .option, .command]
+        }
+        for item in [accessItem, enabledItem, pauseItem, editItem] {
             item.target = self
             menu.addItem(item)
         }
         presetItem.submenu = buildPresetMenu()
         menu.addItem(presetItem)
+        menu.addItem(.separator())
+        for item in [cursorItem, loginItem] {
+            item.target = self
+            menu.addItem(item)
+        }
         menu.addItem(.separator())
         let diag = NSMenuItem(title: "Copy Diagnostics", action: #selector(copyDiagnostics), keyEquivalent: "")
         diag.target = self
@@ -347,7 +442,35 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
             item.target = self
             menu.addItem(item)
         }
+
+        menu.addItem(.separator())
+        let snap = NSMenuItem(title: "Snap to Window Below", action: #selector(snapToWindowBelow), keyEquivalent: "")
+        snap.target = self
+        menu.addItem(snap)
         return menu
+    }
+
+    /// Sizes the region to the frontmost ordinary window under its centre, which is the
+    /// fiddly part of setup done by hand otherwise.
+    @objc private func snapToWindowBelow() {
+        guard let primary = NSScreen.screens.first else { return }
+        let centre = CGPoint(x: regionWindow.frame.midX,
+                             y: primary.frame.height - regionWindow.frame.midY)  // CG space
+
+        let listed = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                kCGNullWindowID) as? [[String: Any]] ?? []
+        // The list is front to back, so the first hit is the window you can actually see.
+        for w in listed {
+            guard (w[kCGWindowLayer as String] as? Int) == 0,
+                  (w[kCGWindowOwnerPID as String] as? Int32) != ProcessInfo.processInfo.processIdentifier,
+                  let b = w[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: b as CFDictionary),
+                  rect.contains(centre)
+            else { continue }
+            setRegionFrame(Geometry.appKitRect(fromCG: rect, primaryHeight: primary.frame.height))
+            return
+        }
+        NSSound.beep()   // nothing under the region to snap to
     }
 
     private func sectionHeader(_ title: String) -> NSMenuItem {
@@ -405,6 +528,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     private func syncUI() {
         let symbol: String
         if !hasAccess { symbol = "exclamationmark.triangle" }
+        else if isEnabled && isPaused { symbol = "pause.rectangle" }
         else if isEnabled { symbol = "rectangle.on.rectangle" }
         else { symbol = "rectangle.on.rectangle.slash" }
         statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Virtual Display")
@@ -415,6 +539,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         accessItem.isHidden = hasAccess
         enabledItem.isEnabled = hasAccess
         enabledItem.state = isEnabled ? .on : .off
+        // Pause is meaningless with nothing running, and must not look available then.
+        pauseItem.isEnabled = isEnabled
+        pauseItem.state = isPaused ? .on : .off
+        cursorItem.state = showsCursor ? .on : .off
+        cursorItem.isEnabled = true
+        loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        loginItem.isEnabled = true
         // Region controls stay live with mirroring off: placing the region is a setup
         // task you do before joining a call, not something gated on capture running.
         editItem.state = isEditing ? .on : .off
@@ -503,26 +634,72 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
             return
         }
         isEnabled.toggle()
-        syncUI()
         if isEnabled {
+            isPaused = false   // a fresh start is never a paused one
             NSApp.activate(ignoringOtherApps: true)
+        }
+        syncUI()
+        applyStreamState()
+    }
+
+    /// Suppresses capture without touching the output window, so the meeting keeps the
+    /// window selected and the share survives. Turning mirroring off instead closes the
+    /// window and ends the share, which is not what you want mid-sentence.
+    @objc private func togglePause() {
+        guard isEnabled else { return }
+        isPaused.toggle()
+        syncUI()
+        applyStreamState()
+    }
+
+    private func disableMirroring() {
+        isEnabled = false
+        applyStreamState()
+    }
+
+    /// The single owner of the stream's lifetime. Capture runs exactly when mirroring is
+    /// on and not paused; every other path just sets state and calls this. SCStream is
+    /// not restartable after stopCapture, so stopping means discarding and rebuilding.
+    private func applyStreamState() {
+        let shouldRun = isEnabled && !isPaused
+        if shouldRun {
+            guard stream == nil else { return }
             Task { await start() }
         } else {
-            disableMirroring()
+            guard let old = stream else { return }
+            stream = nil
+            Task {
+                try? await old.stopCapture()
+                self.videoLayer.flushAndRemoveImage()   // leaves the window black
+            }
         }
     }
 
-    /// Tears the stream down rather than pausing it: SCStream is not restartable after
-    /// stopCapture, and start() rebuilds it cheaply. The output window stays open and
-    /// goes black, so a live Meet share survives the toggle.
-    private func disableMirroring() {
-        isEnabled = false
-        let old = stream
-        stream = nil
-        Task {
-            try? await old?.stopCapture()
-            self.videoLayer.flushAndRemoveImage()
+    @objc private func toggleCursor() {
+        showsCursor.toggle()
+        UserDefaults.standard.set(showsCursor, forKey: Self.cursorKey)
+        config.showsCursor = showsCursor
+        if let stream { Task { try? await stream.updateConfiguration(config) } }
+        syncUI()
+    }
+
+    @objc private func toggleLoginItem() {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Could not change the login item"
+            // Registration only works for a real app bundle in a stable location, so
+            // this fails for a build run straight out of .build.
+            alert.informativeText = error.localizedDescription
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
         }
+        syncUI()
     }
 
     // MARK: Capture
@@ -537,7 +714,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
             config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
             config.queueDepth = 5
             config.capturesAudio = false
-            config.showsCursor = true
+            config.showsCursor = showsCursor
             config.sourceRect = currentSourceRect()
 
             let s = SCStream(filter: filter, configuration: config, delegate: self)
