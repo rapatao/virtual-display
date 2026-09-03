@@ -212,6 +212,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         if UserDefaults.standard.bool(forKey: Self.outputVisibleKey) {
             outputWindow.orderFront(nil)
         }
+        installMainMenu()
         // Permission is checked on first enable so launching never puts a dialog up.
         installStatusItem()
     }
@@ -236,6 +237,34 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
                                 keyEquivalent: "q"))
         statusItem.menu = menu
         syncUI()
+    }
+
+    /// Chrome and several other conferencing apps build their "share a window" list from
+    /// applications that have a Dock presence, so an LSUIElement agent app's windows are
+    /// never offered. Become a regular app exactly while the shareable window is on
+    /// screen, and go back to tray-only the moment it is hidden.
+    private func syncActivationPolicy() {
+        let wanted: NSApplication.ActivationPolicy = outputWindow.isVisible ? .regular : .accessory
+        guard NSApp.activationPolicy() != wanted else { return }
+        NSApp.setActivationPolicy(wanted)
+    }
+
+    /// Only ever shown while the activation policy is .regular; an accessory app has no
+    /// menu bar of its own. Without this the app owns the menu bar with nothing in it.
+    private func installMainMenu() {
+        let appMenu = NSMenu()
+        let show = NSMenuItem(title: "Show Output Window", action: #selector(toggleOutput), keyEquivalent: "")
+        show.target = self
+        appMenu.addItem(show)
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "Quit Virtual Display",
+                                   action: #selector(NSApplication.terminate(_:)),
+                                   keyEquivalent: "q"))
+        let appItem = NSMenuItem()
+        appItem.submenu = appMenu
+        let main = NSMenu()
+        main.addItem(appItem)
+        NSApp.mainMenu = main
     }
 
     private func buildPresetMenu() -> NSMenu {
@@ -334,6 +363,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         // The output window is never shown or hidden as a side effect of anything else;
         // only toggleOutput() moves it. Enabling mirroring must not pop it up.
         outputItem.state = outputWindow.isVisible ? .on : .off
+        syncActivationPolicy()
 
         borderView.isEditing = isEditing
         // Locked = click-through, so the window you dragged into the region stays usable.
@@ -571,6 +601,28 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
 
 if CommandLine.arguments.contains("--selftest") {
     Geometry.selftest()
+    exit(0)
+}
+
+// Prints the on-screen window list the way a conferencing app's window picker builds
+// one, so "it is not in the list" can be answered with data instead of guesswork.
+if CommandLine.arguments.contains("--list-windows") {
+    let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                          kCGNullWindowID) as? [[String: Any]] ?? []
+    var listed = 0
+    for w in info {
+        let layer = w[kCGWindowLayer as String] as? Int ?? -1
+        guard layer == 0 else { continue }   // pickers only offer normal-level windows
+        let owner = w[kCGWindowOwnerName as String] as? String ?? "?"
+        let title = w[kCGWindowName as String] as? String ?? "<no title readable>"
+        let bounds = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+        let width = bounds["Width"] as? Double ?? 0
+        let height = bounds["Height"] as? Double ?? 0
+        print("\(owner) | \(title) | \(Int(width))x\(Int(height))")
+        listed += 1
+    }
+    print("\n\(listed) normal-level windows on screen.")
+    print("Window titles read as <no title readable> unless this terminal has Screen Recording access.")
     exit(0)
 }
 
