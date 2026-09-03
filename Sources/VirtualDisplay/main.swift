@@ -171,7 +171,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     private var stream: SCStream?
     private var config = SCStreamConfiguration()
     private var display: SCDisplay?
-    private static let outputVisibleKey = "showOutputWindow"
     private static let editingKey = "editRegion"
     private var isEditing = UserDefaults.standard.object(forKey: App.editingKey) as? Bool ?? true
     // Off at launch: the app comes up as a tray icon only, no windows, no capture.
@@ -186,10 +185,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let enabledItem = NSMenuItem(title: "Mirroring", action: #selector(toggleEnabled), keyEquivalent: "")
     private let editItem = NSMenuItem(title: "Edit Region", action: #selector(toggleEdit), keyEquivalent: "")
-    private let outputItem = NSMenuItem(title: "Show Output Window", action: #selector(toggleOutput), keyEquivalent: "")
     private let accessItem = NSMenuItem(title: "Allow Screen Recording...", action: #selector(requestAccess), keyEquivalent: "")
-    private let hintItem = NSMenuItem(title: "Output window hidden - nothing to share yet",
-                                      action: nil, keyEquivalent: "")
     private let presetItem = NSMenuItem(title: "Region Presets", action: nil, keyEquivalent: "")
 
     /// Region sizes in points. On a 2x display 960x540 pt is exactly the 1920x1080 px
@@ -244,9 +240,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     }()
 
     private lazy var outputWindow: NSWindow = {
-        // No .closable / .miniaturizable: closing or minimising this window kills the
-        // Meet share. Disabling from the tray pauses the mirror instead.
-        let w = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 640, height: 360),
+        // Small by default: it only has to exist for the meeting to have something to
+        // share, and it is still resizable if you want to watch it. No .miniaturizable:
+        // a minimised window reports onscreen=false and drops straight out of every
+        // share picker, which is measurably the same as not having it at all.
+        let w = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 180),
                          styleMask: [.titled, .resizable],
                          backing: .buffered,
                          defer: false)
@@ -276,12 +274,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         // Neither is ordered on screen, so the app is still tray-only at launch.
         _ = regionWindow
         _ = outputWindow
-        // A hidden output window is invisible to the meeting's window picker, so if it
-        // was open last time, bring it back. orderFront, not makeKeyAndOrderFront: it
-        // must not steal focus on login.
-        if UserDefaults.standard.bool(forKey: Self.outputVisibleKey) {
-            outputWindow.orderFront(nil)
-        }
         installMainMenu()
         // Permission is checked on first enable so launching never puts a dialog up.
         installStatusItem()
@@ -290,17 +282,12 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     private func installStatusItem() {
         let menu = NSMenu()
 
-        hintItem.isEnabled = false   // a note, not a command
-        menu.addItem(hintItem)
         for item in [accessItem, enabledItem, editItem] {
             item.target = self
             menu.addItem(item)
         }
         presetItem.submenu = buildPresetMenu()
         menu.addItem(presetItem)
-        outputItem.target = self
-        menu.addItem(outputItem)
-
         menu.addItem(.separator())
         let diag = NSMenuItem(title: "Copy Diagnostics", action: #selector(copyDiagnostics), keyEquivalent: "")
         diag.target = self
@@ -330,10 +317,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     /// menu bar of its own. Without this the app owns the menu bar with nothing in it.
     private func installMainMenu() {
         let appMenu = NSMenu()
-        let show = NSMenuItem(title: "Show Output Window", action: #selector(toggleOutput), keyEquivalent: "")
-        show.target = self
-        appMenu.addItem(show)
-        appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit Virtual Display",
                                    action: #selector(NSApplication.terminate(_:)),
                                    keyEquivalent: "q"))
@@ -437,13 +420,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         editItem.state = isEditing ? .on : .off
         editItem.isEnabled = true
         presetItem.isEnabled = true
-        // The output window is never shown or hidden as a side effect of anything else;
-        // only toggleOutput() moves it. Enabling mirroring must not pop it up.
-        outputItem.state = outputWindow.isVisible ? .on : .off
-        // Mirroring with the output window hidden captures into a window no meeting can
-        // see. The region frame is still on screen, which makes it look like it is
-        // working, so say so rather than leaving it silent.
-        hintItem.isHidden = !(isEnabled && !outputWindow.isVisible)
+        // The output window exists solely to be shared, so it follows mirroring rather
+        // than being managed by hand. orderFront, never makeKeyAndOrderFront: it must
+        // not steal focus from whatever you are about to drag into the region.
+        if isEnabled {
+            outputWindow.orderFront(nil)
+        } else {
+            outputWindow.orderOut(nil)
+        }
         syncActivationPolicy()
 
         borderView.isEditing = isEditing
@@ -480,18 +464,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         alert.addButton(withTitle: "OK")
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
-    }
-
-    @objc private func toggleOutput() {
-        if outputWindow.isVisible {
-            // Heads up: this also ends any in-progress Meet share of the window.
-            outputWindow.orderOut(nil)
-        } else {
-            outputWindow.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        }
-        UserDefaults.standard.set(outputWindow.isVisible, forKey: Self.outputVisibleKey)
-        syncUI()
     }
 
     /// The menu refreshes itself on every open, so a grant made (or revoked) in System

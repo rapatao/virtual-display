@@ -144,9 +144,9 @@ ad-hoc release re-asks for permission. Any real certificate fixes that.
 
 ## Usage
 
-The app lives in the menu bar. A Dock icon appears only while the output window is open,
-because conferencing apps build their "share a window" list from applications that have a
-Dock presence; close the window and it goes back to tray-only.
+The app lives in the menu bar. A Dock icon appears only while mirroring is on, because
+conferencing apps build their "share a window" list from applications that have a Dock
+presence; turn mirroring off and it goes back to tray-only.
 
 1. Click the menu bar icon and enable **Mirroring**. Grant Screen Recording if asked, then
    reopen the app.
@@ -154,8 +154,9 @@ Dock presence; close the window and it goes back to tray-only.
    from anywhere inside it, resize from any edge.
 3. Turn **Edit Region** off. The frame turns green and becomes click-through, so windows
    underneath stay usable.
-4. Choose **Show Output Window**, then in your meeting pick Share > Window > **Virtual
-   Display**.
+4. In your meeting pick Share > **Window** > **Virtual Display**. The output window opens
+   automatically with mirroring; it is small on purpose and can sit behind everything
+   else, but it must stay on screen and must not be minimised.
 5. Drag any window into the region. It is now on the call.
 
 ### Menu reference
@@ -166,7 +167,6 @@ Dock presence; close the window and it goes back to tray-only.
 | **Mirroring** | Starts and stops capture. Disabled while permission is missing. |
 | **Edit Region** | On: the frame is red, draggable and resizable. Off: green and click-through. |
 | **Region Presets** | Size and position presets, see below. |
-| **Show Output Window** | Shows or hides the window you share in the meeting. |
 | **Copy Diagnostics** | Copies a report on screen state to the clipboard and displays it. Same output as `--doctor`. |
 | **Quit Virtual Display** | `Cmd Q` |
 
@@ -207,10 +207,17 @@ ratio is not 16:9 the image is letterboxed inside it rather than stretched.
 can sit on top of the region without producing an infinite mirror tunnel, and the red or
 green frame never appears in what you share.
 
-**Disabling mirroring does not end your share.** The output window stays open and goes
-black, so the meeting keeps the window selected and you can resume by re-enabling.
-*Hiding* the output window does end the share, because macOS only shares on-screen
-windows. Toggle it between calls, not during one.
+**The output window is not optional and is managed for you.** It opens when mirroring is
+enabled and closes when mirroring is disabled, because it is the only thing a meeting can
+actually share. Resize it freely; it stays 16:9 and may be left behind other windows.
+
+**Turning mirroring off ends your share.** The window it was offering goes away, so the
+meeting stops sharing rather than showing a frozen frame. Re-enable and pick the window
+again to resume.
+
+**Never minimise the output window.** A minimised window reports `onscreen=false` and is
+dropped from every share picker, which looks exactly like the app being broken. It has no
+minimise button for that reason.
 
 **The region frame is independent of mirroring.** It is visible whenever you are editing
 it or mirroring is live, so the region can be positioned before a call starts.
@@ -313,14 +320,13 @@ The app has **two** windows and they are easy to confuse:
 
 Seeing the region frame on screen does not mean the output window is open. Check the
 report: the output window is labelled, and it must appear under `on-screen normal windows`
-with `onscreen=true`.
+with `onscreen=true`. If it is missing there, enable **Mirroring**, which opens it.
 
 Common causes:
 
 - It is a **window**, not a display. In Meet, Zoom or Slack, pick the **Window** tab. It
   will never appear under Entire Screen / Display.
-- The output window must be **on screen** to be listed at all, and it starts hidden on a
-  fresh install. Choose **Show Output Window** from the tray menu, then reopen the share
-  picker. Do not minimise it; macOS only enumerates on-screen windows.
-
-The choice is remembered, so this only comes up the first time on a given machine.
+- The output window must be **on screen** to be listed at all, and it only exists while
+  **Mirroring** is on. Enable mirroring, then reopen the share picker.
+- Never minimise it. macOS only enumerates on-screen windows, and a minimised one is not
+  one.
