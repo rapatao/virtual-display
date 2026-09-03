@@ -23,6 +23,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/VirtualDisplay"
 cp VirtualDisplay.icns "$APP/Contents/Resources/VirtualDisplay.icns"
+# GPL section 4: a copy of the License travels with every copy conveyed. The release zip
+# and the cask both carry the .app and nothing else, so it has to live inside the bundle.
+cp LICENSE "$APP/Contents/Resources/LICENSE"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -37,6 +40,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>NSHumanReadableCopyright</key><string>Copyright (C) 2026 Luiz Henrique Rapatao. GNU GPL v3 or later.</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <!-- The automation channel: open 'virtualdisplay://toggle-mirroring' from anything. -->
