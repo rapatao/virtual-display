@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+VirtualDisplay.app/
+VirtualDisplay.iconset/
+VirtualDisplay.icns
+*.zip
+.DS_Store
