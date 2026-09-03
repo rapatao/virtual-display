@@ -37,24 +37,37 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         public var applySize: (RegionSize) -> Void = { _ in }
         public var applySpot: (RegionSpot) -> Void = { _ in }
         public var snapToWindowBelow: () -> Void = {}
+        public var takeScreenshot: () -> Void = {}
+        public var toggleRecording: () -> Void = {}
         public var toggleCursor: () -> Void = {}
         public var toggleLoginItem: () -> Void = {}
         public var copyDiagnostics: () -> Void = {}
+        public var togglePlugins: () -> Void = {}
+        public var reloadPlugins: () -> Void = {}
+        public var showPluginError: () -> Void = {}
         public init() {}
     }
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let actions: Actions
+    private let menu = NSMenu()
 
     private let accessItem: ActionMenuItem
     private let mirroringItem: ActionMenuItem
     private let pauseItem: ActionMenuItem
     private let editItem: ActionMenuItem
     private let presetItem = NSMenuItem(title: "Region Presets", action: nil, keyEquivalent: "")
+    private let screenshotItem: ActionMenuItem
+    private let recordItem: ActionMenuItem
     private let cursorItem: ActionMenuItem
     private let loginItem: ActionMenuItem
+    private let pluginsItem: ActionMenuItem
+    private let reloadItem: ActionMenuItem
+    private let errorItem: ActionMenuItem
+    /// Items a plugin added, kept so a reload can take them away again.
+    private var pluginItems: [NSMenuItem] = []
 
-    public init(actions: Actions) {
+    public init(actions: Actions, presets: [RegionSize] = RegionSize.presets) {
         self.actions = actions
         accessItem = ActionMenuItem("Allow Screen Recording...", handler: actions.requestAccess)
         mirroringItem = ActionMenuItem("Mirroring", key: "m",
@@ -64,44 +77,85 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
                                    modifiers: [.control, .option, .command],
                                    handler: actions.togglePause)
         editItem = ActionMenuItem("Edit Region", handler: actions.toggleEditRegion)
+        screenshotItem = ActionMenuItem("Take Screenshot", key: "s",
+                                        modifiers: [.control, .option, .command],
+                                        handler: actions.takeScreenshot)
+        recordItem = ActionMenuItem("Start Recording", key: "r",
+                                    modifiers: [.control, .option, .command],
+                                    handler: actions.toggleRecording)
         cursorItem = ActionMenuItem("Show Cursor in Share", handler: actions.toggleCursor)
         loginItem = ActionMenuItem("Launch at Login", handler: actions.toggleLoginItem)
+        pluginsItem = ActionMenuItem("Enable Plugins", handler: actions.togglePlugins)
+        reloadItem = ActionMenuItem("Reload Plugins", handler: actions.reloadPlugins)
+        errorItem = ActionMenuItem("Plugin Error...", handler: actions.showPluginError)
         super.init()
 
-        let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false   // otherwise AppKit overrides our isEnabled flags
 
         [accessItem, mirroringItem, pauseItem, editItem].forEach(menu.addItem)
-        presetItem.submenu = buildPresetMenu()
         menu.addItem(presetItem)
+        menu.addItem(.separator())
+        [screenshotItem, recordItem].forEach(menu.addItem)
         menu.addItem(.separator())
         [cursorItem, loginItem].forEach(menu.addItem)
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Copy Diagnostics", handler: actions.copyDiagnostics))
+        menu.addItem(pluginsItem)
+        menu.addItem(reloadItem)
+        menu.addItem(errorItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Virtual Display",
                                 action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: "q"))
         statusItem.menu = menu
+        errorItem.isHidden = true
+        setPresets(presets)
     }
 
-    private func buildPresetMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
+    /// Rebuilt rather than built once: the config file and any plugin can add presets,
+    /// and a plugin reload has to be able to take them away again.
+    public func setPresets(_ presets: [RegionSize]) {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
 
-        menu.addItem(Self.header("Size"))
-        for preset in RegionSize.presets {
-            menu.addItem(ActionMenuItem(preset.name) { [actions] in actions.applySize(preset) })
+        submenu.addItem(Self.header("Size"))
+        for preset in presets {
+            submenu.addItem(ActionMenuItem(preset.name) { [actions] in actions.applySize(preset) })
         }
-        menu.addItem(.separator())
-        menu.addItem(Self.header("Position"))
+        submenu.addItem(.separator())
+        submenu.addItem(Self.header("Position"))
         for spot in RegionSpot.allCases {
-            menu.addItem(ActionMenuItem(spot.name) { [actions] in actions.applySpot(spot) })
+            submenu.addItem(ActionMenuItem(spot.name) { [actions] in actions.applySpot(spot) })
         }
-        menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("Snap to Window Below", handler: actions.snapToWindowBelow))
-        return menu
+        submenu.addItem(.separator())
+        submenu.addItem(ActionMenuItem("Snap to Window Below", handler: actions.snapToWindowBelow))
+        presetItem.submenu = submenu
+    }
+
+    /// Menu items registered by plugins. They sit in their own section under the presets,
+    /// so a reload replaces exactly them and nothing built in.
+    public func setPluginItems(_ items: [(title: String, run: () -> Void)]) {
+        pluginItems.forEach(menu.removeItem)
+        pluginItems = []
+        guard !items.isEmpty else { return }
+
+        var index = menu.index(of: presetItem) + 1
+        let separator = NSMenuItem.separator()
+        menu.insertItem(separator, at: index)
+        pluginItems.append(separator)
+        index += 1
+        for item in items {
+            let menuItem = ActionMenuItem(item.title, handler: item.run)
+            menu.insertItem(menuItem, at: index)
+            pluginItems.append(menuItem)
+            index += 1
+        }
+    }
+
+    /// Shown only when a plugin actually failed; clicking it explains what went wrong.
+    public func setPluginError(_ message: String?) {
+        errorItem.isHidden = message == nil
     }
 
     private static func header(_ title: String) -> NSMenuItem {
@@ -125,6 +179,14 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         editItem.isEnabled = true
         editItem.state = state.isEditingRegion ? .on : .off
         presetItem.isEnabled = true
+        // Both grab the output window, so both need it on screen.
+        screenshotItem.isEnabled = state.canCaptureOutput
+        recordItem.isEnabled = state.canCaptureOutput || state.isRecording
+        recordItem.title = state.isRecording ? "Stop Recording" : "Start Recording"
+        pluginsItem.isEnabled = true
+        pluginsItem.state = state.arePluginsEnabled ? .on : .off
+        // Nothing to reload while plugins are off, and offering it would suggest there is.
+        reloadItem.isEnabled = state.arePluginsEnabled
         cursorItem.isEnabled = true
         cursorItem.state = state.showsCursor ? .on : .off
         loginItem.isEnabled = true
@@ -134,6 +196,8 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     private static func icon(for state: AppState) -> NSImage? {
         let symbol: String
         if !state.hasScreenRecordingAccess { symbol = "exclamationmark.triangle" }
+        // Recording outranks pause in the icon: it is the state you must not forget about.
+        else if state.isRecording { symbol = "record.circle" }
         else if state.isPaused && state.isMirroring { symbol = "pause.rectangle" }
         else if state.isMirroring { symbol = "rectangle.on.rectangle" }
         else { symbol = "rectangle.on.rectangle.slash" }

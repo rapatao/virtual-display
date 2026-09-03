@@ -55,20 +55,60 @@ System Settings > General > Login Items to have it start with the machine.
 
 ### Signing
 
-By default the bundle is ad-hoc signed. macOS ties the Screen Recording grant to the
-binary's hash in that case, so **every rebuild is treated as a new app and re-asks for
-permission**. To keep the grant across rebuilds, sign with a stable identity:
+By default the bundle is ad-hoc signed, and its designated requirement is then a bare
+cdhash:
 
-1. Keychain Access > Certificate Assistant > **Create a Certificate...**
-2. Name it `Virtual Display Dev`, set Certificate Type to **Code Signing**, self-signed
-3. Build with that identity:
-
-```sh
-VD_SIGN_ID="Virtual Display Dev" ./bundle.sh
+```
+designated => cdhash H"7a56e51e..."
 ```
 
-When `VD_SIGN_ID` is set, the bundle is signed with the hardened runtime and a secure
+macOS records that requirement when you grant Screen Recording and matches later builds
+against it, so **every rebuild is a new app and asks for permission again** - and so is
+every release, for everyone who installed the last one.
+
+Signing with any stable identity fixes it:
+
+```sh
+VD_SIGN_ID="Apple Development: you@example.com (XXXXXXXXXX)" ./bundle.sh
+```
+
+`security find-identity -v -p codesigning` lists what you have. Put the export in your
+shell profile and plain `./bundle.sh` picks it up.
+
+For an Apple-issued certificate the script goes one step further and pins the requirement
+to the **team**, not to the certificate:
+
+```
+designated => identifier "com.rapatao.virtual-display" and anchor apple generic
+              and certificate leaf[subject.OU] = "TEAMID"
+```
+
+codesign's own default names the leaf certificate, which means the grant dies the day that
+certificate is renewed, or when an Apple Development certificate is traded for a Developer
+ID one. Pinning the team outlives both. A self-signed certificate has no team and no Apple
+anchor, so those keep the default requirement and still survive rebuilds.
+
+The requirement stored by macOS is the one that was in force **when the permission was
+granted**. After switching to a team-pinned build, grant once more to store the durable
+one:
+
+```sh
+tccutil reset ScreenCapture com.rapatao.virtual-display
+defaults delete com.rapatao.virtual-display didRequestScreenRecordingAccess
+```
+
+The second line matters: `tccutil` clears the system grant but not the app's own record of
+having asked, and without it the app assumes macOS will not prompt again and shows its own
+alert instead.
+
+When `VD_SIGN_ID` is set, the bundle is also signed with the hardened runtime and a secure
 timestamp, which notarization requires. Ad-hoc signing supports neither.
+
+If the identity does not appear in `find-identity`, the usual cause is a missing
+intermediate rather than a bad certificate: an Apple Development certificate is issued by
+**WWDR G3**, and a machine carrying only the expired G1 fails with `errSecInternalComponent`
+and "unable to build chain to self-signed root". Install the current intermediate from
+[Apple's certificate authority page](https://www.apple.com/certificateauthority/).
 
 ---
 
@@ -179,15 +219,51 @@ presence; turn mirroring off and it goes back to tray-only.
 | --- | --- |
 | `Ctrl Opt Cmd M` | Toggle mirroring |
 | `Ctrl Opt Cmd P` | Toggle pause |
+| `Ctrl Opt Cmd S` | Take a screenshot |
+| `Ctrl Opt Cmd R` | Start or stop recording |
 
 These are global: they work while another app is focused. They are registered through
 Carbon's `RegisterEventHotKey`, which unlike an `NSEvent` global monitor needs no
 Accessibility permission.
 
+Binding one of these combinations in `config.json` overrides the default: config shortcuts
+are registered first, and the built-in then does not claim the key. The action keeps its
+menu item either way. See [Customising](#customising-without-a-new-release).
+
+### Screenshots and recording
+
+| Menu item | Produces |
+| --- | --- |
+| **Take Screenshot** | `~/Pictures/Virtual Display/Screenshot 2026-09-03 at 22.15.00.png` |
+| **Start Recording** / **Stop Recording** | `~/Movies/Virtual Display/Recording 2026-09-03 at 22.15.00.mov` |
+
+Both capture the output window, not the region, so what you get is exactly what the meeting
+sees, overlays included. Stills are PNG at 1920x1080; recordings are H.264 in a QuickTime
+container, 1920x1080 at 30fps, **video only, no audio**.
+
+Both need the output window on screen, so both are greyed out unless mirroring is on. While
+paused they still work, on the frozen picture. The menu bar icon becomes a record dot while
+recording, since that is the state you must not forget about.
+
+From a script or a plugin, with an optional destination:
+
+```sh
+open 'virtualdisplay://screenshot'
+open 'virtualdisplay://start-recording?path=~/Desktop/demo.mov'
+open 'virtualdisplay://stop-recording'
+```
+
+A recording is finalised when you stop it, when mirroring is turned off, when capture
+fails, and when the app quits - an unfinalised `.mov` will not play, so quitting waits for
+the file to close. If frames cannot be encoded fast enough they are dropped rather than
+stalling the live mirror. A recording that never received a frame deletes its own stub and
+says so.
+
 ### Menu bar icon states
 
 | Icon | Meaning |
 | --- | --- |
+| Record dot | A recording is running |
 | Two rectangles | Mirroring is live |
 | Two rectangles, struck through | Mirroring is off |
 | Pause symbol | Mirroring is on but paused |
@@ -216,6 +292,193 @@ larger than the display it sits on. Choosing a preset while the frame is hidden 
 
 ---
 
+## Customising without a new release
+
+Three levels, in order of how much you need. All of them live outside the app bundle, so
+none of them survives only until the next upgrade, and none of them needs a rebuild.
+
+| Want | Use | Where |
+| --- | --- | --- |
+| Your own sizes, shortcuts, startup defaults | `config.json` | `~/.config/virtual-display/config.json` |
+| Drive the app from other software | `virtualdisplay://` URLs | anything that can run `open` |
+| Behaviour the app does not have | Lua plugins | `~/.config/virtual-display/plugins/*.lua` |
+| Text, images or live data on the stream | `vd.overlay` and `vd.fetch` in a plugin | same |
+
+`XDG_CONFIG_HOME` is honoured if set. Working examples of the first and the third live in
+[`examples/`](examples).
+
+### config.json
+
+```json
+{
+  "presets": [{ "name": "Notes strip", "width": 700, "height": 1000 }],
+  "hotkeys": {
+    "ctrl-opt-cmd-r": "snap-to-window-below",
+    "ctrl-opt-cmd-1": "set-size?width=1280&height=720"
+  },
+  "defaults": { "showsCursor": false }
+}
+```
+
+Presets are added to the built-in ones, not replacing them. Hotkey values are commands
+from the table below, with arguments in URL query form. Shortcut specs are modifiers plus
+one key: `cmd`, `ctrl`, `opt` (or `alt`), `shift`, then a letter, digit, `f1`-`f20`, an
+arrow, `space`, `return`, `tab`, `escape`, `delete`, `home`, `end`, `pageup`, `pagedown`,
+or a punctuation key. `defaults` only applies to settings you have never toggled in the
+menu; once you toggle one, your choice wins.
+
+A missing file is normal, and a malformed one is logged and ignored rather than stopping
+the app from launching.
+
+### Commands and the URL scheme
+
+```sh
+open 'virtualdisplay://toggle-mirroring'
+open 'virtualdisplay://set-size?width=1280&height=720'
+open 'virtualdisplay://set-region?x=100&y=100&w=960&h=540'
+```
+
+| Command | Arguments |
+| --- | --- |
+| `toggle-mirroring`, `set-mirroring` | `on=true\|false` |
+| `toggle-pause`, `set-pause` | `on=` |
+| `toggle-edit-region`, `set-edit-region` | `on=` |
+| `set-size` | `name=<preset prefix>`, or `width=` and `height=` |
+| `set-spot` | `name=center\|top-left\|top-right\|bottom-left\|bottom-right` |
+| `set-region` | `x= y= w= h=` in screen points |
+| `region` | prints the region frame as JSON |
+| `snap-to-window-below` | |
+| `screenshot` | `path=` optional; returns where it will land |
+| `start-recording`, `stop-recording`, `toggle-recording` | `path=` optional |
+| `toggle-cursor`, `toggle-login-item`, `request-access` | |
+| `copy-diagnostics`, `diagnostics` | |
+| `state` | prints `AppState` as JSON |
+| `commands` | lists every command, including any a plugin added |
+| `reload-plugins` | re-reads the plugins directory |
+| `set-overlay` | `id=` plus `text=` or `image=`, and `x= y= w= h= size= color= background= align= alpha= z=` |
+| `clear-overlay`, `clear-overlays` | `id=` / everything |
+
+The menu, the global shortcuts, the URL scheme and the plugins all dispatch through this
+one table, so a command can never do one thing from the menu and another from a script.
+
+### Lua plugins
+
+**Plugins are off until you turn them on**: tick **Enable Plugins** in the menu, or run
+`open 'virtualdisplay://set-plugins?on=true'`. Then every `.lua` file in
+`~/.config/virtual-display/plugins/` runs at launch, in filename order, against one shared
+Lua 5.4 interpreter. **Reload Plugins** re-reads them without restarting the app; turning
+the toggle off again unregisters everything they added.
+
+Files that are not owned by you, or that are group- or world-writable, are skipped and
+reported. A plugin runs with this app's Screen Recording grant, so a file that some other
+process can rewrite must not be loaded.
+
+| Call | Does |
+| --- | --- |
+| `vd.command(name, args)` | Runs any command. Returns its result, or `nil, message` |
+| `vd.register(name, fn)` | Adds a command, reachable from `virtualdisplay://` too |
+| `vd.on(event, fn)` | `mirroring`, `pause`, `edit_region`, `region_moved`, `capture_failed`, `menu_will_open` |
+| `vd.hotkey(spec, fn)` | Global shortcut, same spec format as the config file |
+| `vd.menu(title, fn)` | Adds a menu bar item |
+| `vd.preset(name, width, height)` | Adds a region preset |
+| `vd.region()` | `{ x, y, w, h }` of the region frame |
+| `vd.windows()` | On-screen windows, front to back: `{ app, title, pid, x, y, w, h }` |
+| `vd.state()` | The app state as a table of booleans |
+| `vd.timer(seconds, fn)` | One-shot; call it again from `fn` to repeat |
+| `vd.overlay(id, spec)` | Draws over the shared image. `spec = nil` removes it |
+| `vd.on("screenshot", fn)` | Fires with `path`, `ok`; `"recording"` fires with `on`, `path` |
+| `vd.clear_overlays()` | Removes all of them |
+| `vd.fetch(url, opts, fn)` | HTTP; `fn(res)` gets `body`, `status`, `ok`, `error` |
+| `vd.log(message)` | To the system log |
+
+Nothing raises a Lua error at you: a call that fails returns `nil` and a message, the way
+`io.open` does. An error thrown inside your own plugin is caught, logged, and shown behind
+a **Plugin Error...** menu item; the other plugins still load.
+
+```lua
+vd.menu("Snap and share", function()
+    vd.command("snap-to-window-below")
+    vd.command("set-mirroring", { on = true })
+end)
+```
+
+[`examples/plugins/follow-window.lua`](examples/plugins/follow-window.lua) uses the whole
+API to keep the region glued to a chosen app's window.
+
+#### Drawing on the stream
+
+Overlays are drawn in the output window, which is the thing a meeting shares, so everyone
+on the call sees them. The mirrored image underneath is untouched, and nothing is
+composited into the capture pipeline.
+
+```lua
+vd.overlay("band",  { background = "#000000cc", x = 0, y = 0.86, w = 1, h = 0.14 })
+vd.overlay("logo",  { image = "~/Pictures/logo.png", x = 0.02, y = 0.88, h = 0.1 })
+vd.overlay("clock", { text = os.date("%H:%M"), x = 0.98, y = 0.89, size = 44, align = "right" })
+vd.overlay("clock", nil)   -- remove
+```
+
+| Key | Meaning |
+| --- | --- |
+| `text` / `image` | A string, or a path to an image file. One overlay may carry both |
+| `x`, `y` | Position as a fraction of the window: `0,0` top left, `1,1` bottom right |
+| `w`, `h` | Size as a fraction of the window. Omit one on an image to keep its aspect |
+| `size` | Font size in points on a 1920x1080 reference canvas, scaled to the window |
+| `color`, `background` | `#rrggbb`, `#rrggbbaa`, `#rgb`, or `white`/`black`/`red`/... |
+| `align` | `left`, `center`, `right`; `x` is that edge of the item |
+| `alpha`, `z` | Opacity 0-1, and draw order. Equal `z` keeps insertion order |
+
+Setting the same `id` again replaces it in place, so a clock ticking every second does not
+climb over its neighbours. Everything is sized against a 1080-tall canvas, so overlays keep
+their proportions when the output window is resized. Reloading plugins clears them.
+
+The same thing without Lua:
+
+```sh
+open 'virtualdisplay://set-overlay?id=live&text=RECORDING&x=0.5&y=0.05&align=center&color=%23ff0000'
+```
+
+#### Talking to an API
+
+`vd.fetch(url, options, callback)` does HTTP through `URLSession`. `options` is optional
+and takes `method`, `body`, `timeout` and a nested `headers` table. The callback gets one
+table: `body`, `status`, `ok`, `error`. It never raises, and bodies are capped at 4 MB and
+decoded as text.
+
+```lua
+vd.fetch("https://api.example.com/now-playing",
+         { headers = { Authorization = "Bearer " .. token } },
+         function(res)
+    if res.ok then
+        vd.overlay("track", { text = res.body, x = 0.5, y = 0.92, align = "center" })
+    end
+end)
+```
+
+Combine with `vd.timer` to poll. [`examples/plugins/overlay-ticker.lua`](examples/plugins/overlay-ticker.lua)
+is a lower third that does exactly that: logo, ticking clock, and a headline refreshed from
+an API every 30 seconds, shown only while mirroring runs.
+
+`vd.fetch` is the app's only outbound network call, and it happens only because a plugin
+asked. It also means a plugin can send data out - though stock Lua's `io` and `os.execute`
+already allow that, so it changes convenience, not exposure.
+
+**Plugins are trusted code.** They run inside an app that holds Screen Recording
+permission, so a plugin can capture your screen and, through `vd.fetch`, send what it
+finds somewhere. There is no sandbox: treat the plugins directory the way you treat your
+shell profile. That is why the feature is opt-in and why unsafe file permissions are
+refused - anything able to write a file in your home directory would otherwise inherit
+this app's permissions. Native module loading (`package.loadlib`, C `require`) is switched
+off, since the hardened runtime blocks it anyway.
+
+If a plugin wedges the app at launch:
+
+```sh
+defaults write com.rapatao.virtual-display enablePlugins -bool NO
+```
+
+---
+
 ## Behaviour notes
 
 **The region is free-form.** Output is always a 1920x1080 canvas. When the region's aspect
@@ -228,6 +491,13 @@ green frame never appears in what you share.
 **The output window is not optional and is managed for you.** It opens when mirroring is
 enabled and closes when mirroring is disabled, because it is the only thing a meeting can
 actually share. Resize it freely; it stays 16:9 and may be left behind other windows.
+
+**The output window has no title bar.** Picture edge to edge, so what the meeting sees
+looks like a display rather than a window. It still *has* a title, "Virtual Display":
+that is the name a share picker lists it under, and an untitled window is one some pickers
+drop entirely. With no title bar to grab, drag the window by the picture itself. macOS
+still rounds the top corners of any titled window; a meeting renders those few pixels
+black.
 
 **Turning mirroring off ends your share.** The window it was offering goes away, so the
 meeting stops sharing rather than showing a frozen frame. Re-enable and pick the window
@@ -259,6 +529,7 @@ Stored in `UserDefaults` under `com.rapatao.virtual-display`:
 | `editRegion` | Edit Region toggle |
 | `showsCursor` | Show Cursor in Share toggle |
 | `didRequestScreenRecordingAccess` | Whether the system permission prompt has been shown |
+| `enablePlugins` | Enable Plugins toggle. Absent means off |
 
 Mirroring and pause are deliberately **not** persisted; the app always starts with capture
 off and unpaused. Launch at Login lives in macOS, not here, so `defaults delete` will not
@@ -300,6 +571,14 @@ unit tested; an executable target cannot be imported by a test target.
 | `Sources/VirtualDisplayCore/Preferences.swift` | Persisted settings and the login item |
 | `Sources/VirtualDisplayCore/ScreenRecordingPermission.swift` | Reading, requesting, and explaining the grant |
 | `Sources/VirtualDisplayCore/HotKeyCenter.swift` | Carbon global hot keys |
+| `Sources/VirtualDisplayCore/CommandCenter.swift` | Every action by name; menu, hot keys, URLs and plugins dispatch here |
+| `Sources/VirtualDisplayCore/Config.swift` | `~/.config/virtual-display/config.json` and where the plugins live |
+| `Sources/VirtualDisplayCore/KeySpec.swift` | `"ctrl-opt-cmd-r"` into a Carbon key code |
+| `Sources/VirtualDisplayCore/LuaRuntime.swift` | The plugin interpreter and the `vd` API |
+| `Sources/VirtualDisplayCore/Overlay.swift` | Text, images and rectangles drawn over the shared window |
+| `Sources/VirtualDisplayCore/Fetch.swift` | The one outbound HTTP path, for `vd.fetch` |
+| `Sources/VirtualDisplayCore/Recording.swift` | Screenshots and `.mov` recording of the shared window |
+| `Sources/CLua/` | Lua 5.4.8, vendored verbatim. See its `README.md` |
 | `Sources/VirtualDisplayCore/Diagnostics.swift` | The `--doctor` report |
 | `bundle.sh` | Release build, icon generation, `.app` assembly, code signing |
 | `makeicon.swift` | Draws `VirtualDisplay.iconset` from vectors |
@@ -327,12 +606,18 @@ a second region) touches only the caller.
 
 ### Adding things
 
-- **A menu item**: one `ActionMenuItem("Title") { ... }` in `StatusMenu`. No selector, no
-  `@objc` method elsewhere.
+- **An action**: one `commands.register(...)` call in `AppCoordinator.registerCommands()`.
+  It is then reachable from the menu, a shortcut, a URL and a plugin at once.
+- **A menu item**: one `ActionMenuItem("Title") { ... }` in `StatusMenu`, calling a command.
+  No selector, no `@objc` method elsewhere.
 - **A visibility rule**: a derived property on `AppState`, used by `render()`, covered by
   `AppStateTests`.
 - **A global shortcut**: one `HotKeyCenter.shared.register(keyCode:) { ... }` call.
 - **A setting**: a case in `Preferences.Key` and a typed property beside it.
+- **A plugin event**: one `lua.emit("name", [...])` call where the thing happens.
+
+Anything a user might want to vary belongs in `config.json` or the `vd` API instead, so it
+does not need a release. See [Customising](#customising-without-a-new-release).
 
 ### Changing the icon
 
@@ -343,7 +628,17 @@ icon is regenerated only when `makeicon.swift` is newer than `VirtualDisplay.icn
 
 ## Troubleshooting
 
-**Asked for permission repeatedly.** Ad-hoc signing, see [Signing](#signing).
+**A shortcut does nothing.** **Copy Diagnostics** ends with a `shortcuts:` section listing
+every shortcut as `active` or `TAKEN by another app`. Carbon hands a combination to
+whoever registered it first, so another app holding it means ours never fires. Rebind it
+in `config.json`.
+
+**Asked for permission repeatedly.** Ad-hoc signing: the grant is pinned to the binary's
+hash, so every build asks again. See [Signing](#signing).
+
+**Asked for permission again after a certificate renewal.** The grant was stored against a
+requirement naming the old leaf certificate. Team-pinned builds do not have this problem;
+see [Signing](#signing).
 
 **Finder shows a generic icon.** Icon Services cache. Run `touch VirtualDisplay.app` or
 `killall Finder`.

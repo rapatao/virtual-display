@@ -71,6 +71,19 @@ public enum RegionSpot: Int, CaseIterable, Sendable {
         case .bottomRight: return "Bottom Right"
         }
     }
+
+    /// What `set-spot?name=` takes: the menu title, lowercased and hyphenated.
+    public var commandName: String {
+        name.lowercased().replacingOccurrences(of: " ", with: "-")
+    }
+
+    public init?(commandName: String) {
+        let wanted = commandName.lowercased()
+        guard let match = Self.allCases.first(where: { $0.commandName == wanted }) else {
+            return nil
+        }
+        self = match
+    }
 }
 
 /// A region size offered by the presets. `nil` size means "computed from the screen".
@@ -91,6 +104,13 @@ public struct RegionSize: Sendable {
         RegionSize(name: "1920 x 1080", size: CGSize(width: 1920, height: 1080)),
         RegionSize(name: "Half Screen", size: nil),
     ]
+
+    /// What `set-size?name=` matches on. Prefix rather than equality, because the preset
+    /// titles are written for the menu ("960 x 540  (1:1 on Retina)") and nobody is going
+    /// to type that: `name=960` and `name=half` both land.
+    public func matches(_ query: String) -> Bool {
+        name.lowercased().hasPrefix(query.lowercased())
+    }
 
     /// Half the screen width at 16:9 when the preset has no fixed size.
     public func resolved(in visible: CGRect) -> CGSize {
