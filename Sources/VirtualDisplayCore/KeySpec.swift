@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 
 /// A shortcut written the way a config file or a plugin says it: `"ctrl-opt-cmd-r"`,
@@ -24,6 +25,36 @@ public struct KeySpec: Equatable, Sendable {
         }
         keyCode = code
         modifiers = mask
+    }
+
+    public init(keyCode: Int, modifiers: UInt32) {
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+    }
+
+    /// The spec that would parse back to this, for writing into the config file. Nil when
+    /// the key has no name in the table, which is the same set the parser accepts.
+    public var spec: String? {
+        guard let key = Self.keyCodes.first(where: { $0.value == keyCode })?.key else { return nil }
+        // Fixed order, so the same shortcut always reads the same way.
+        let names = [(UInt32(controlKey), "ctrl"), (UInt32(optionKey), "opt"),
+                     (UInt32(cmdKey), "cmd"), (UInt32(shiftKey), "shift")]
+        return (names.filter { modifiers & $0.0 != 0 }.map(\.1) + [key]).joined(separator: "-")
+    }
+
+    /// What a shortcut recorder sees. Nil for a modifier-only press, or for one with no
+    /// modifiers at all: a global hot key without them would swallow ordinary typing.
+    public init?(event: NSEvent) {
+        var mask: UInt32 = 0
+        if event.modifierFlags.contains(.control) { mask |= UInt32(controlKey) }
+        if event.modifierFlags.contains(.option) { mask |= UInt32(optionKey) }
+        if event.modifierFlags.contains(.command) { mask |= UInt32(cmdKey) }
+        if event.modifierFlags.contains(.shift) { mask |= UInt32(shiftKey) }
+        guard mask != 0 else { return nil }
+
+        let code = Int(event.keyCode)
+        guard Self.keyCodes.values.contains(code) else { return nil }
+        self.init(keyCode: code, modifiers: mask)
     }
 
     private static let modifiers: [String: UInt32] = [

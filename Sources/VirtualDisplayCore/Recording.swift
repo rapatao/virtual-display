@@ -7,12 +7,26 @@ import ScreenCaptureKit
 /// The system folders rather than a folder of our own invention, so the files turn up
 /// where anyone would look for them.
 public enum CaptureFiles {
+    /// Set from the config file at launch; empty means the system folders.
+    public static var screenshotFolder: String?
+    public static var recordingFolder: String?
+
     public static func screenshot(at date: Date = Date()) throws -> URL {
-        try directory(.picturesDirectory).appendingPathComponent("Screenshot \(stamp(date)).png")
+        try folder(screenshotFolder, or: .picturesDirectory)
+            .appendingPathComponent("Screenshot \(stamp(date)).png")
     }
 
     public static func recording(at date: Date = Date()) throws -> URL {
-        try directory(.moviesDirectory).appendingPathComponent("Recording \(stamp(date)).mov")
+        try folder(recordingFolder, or: .moviesDirectory)
+            .appendingPathComponent("Recording \(stamp(date)).mov")
+    }
+
+    private static func folder(_ chosen: String?,
+                               or fallback: FileManager.SearchPathDirectory) throws -> URL {
+        guard let chosen, !chosen.isEmpty else { return try directory(fallback) }
+        let url = URL(fileURLWithPath: (chosen as NSString).expandingTildeInPath)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
     /// "2026-09-03 at 22.15.00", the shape macOS uses for its own screenshots. Colons are

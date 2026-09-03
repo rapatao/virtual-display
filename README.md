@@ -299,13 +299,31 @@ none of them survives only until the next upgrade, and none of them needs a rebu
 
 | Want | Use | Where |
 | --- | --- | --- |
-| Your own sizes, shortcuts, startup defaults | `config.json` | `~/.config/virtual-display/config.json` |
+| Sizes, shortcuts, capture folders, plugins | **Settings...** (`Cmd ,`) | menu bar |
+| The same, by hand | `config.json` | `~/.config/virtual-display/config.json` |
 | Drive the app from other software | `virtualdisplay://` URLs | anything that can run `open` |
 | Behaviour the app does not have | Lua plugins | `~/.config/virtual-display/plugins/*.lua` |
 | Text, images or live data on the stream | `vd.overlay` and `vd.fetch` in a plugin | same |
 
-`XDG_CONFIG_HOME` is honoured if set. Working examples of the first and the third live in
-[`examples/`](examples).
+`XDG_CONFIG_HOME` is honoured if set. Working examples live in [`examples/`](examples).
+
+### Settings
+
+**Settings...** in the menu, or `Cmd ,`, in four tabs:
+
+| Tab | Does |
+| --- | --- |
+| Presets | Lists your custom sizes; **Add Current Region Size** turns the region you just dragged into a named preset |
+| Shortcuts | Click a shortcut, press the keys. Escape cancels, Delete clears. Recording one for an action replaces its default |
+| Captures | Where screenshots and recordings are written, or **Default** for the system folders |
+| Plugins | The plugin switch, the folder, a reload button, and any load errors |
+
+There is no Save button: every change is written to `config.json` immediately and applied
+without a relaunch. The window and the file are the same settings, so hand-editing still
+works - though a save rewrites the file whole, dropping any key this version does not know
+about.
+
+`open 'virtualdisplay://settings?tab=shortcuts'` opens it on a particular tab.
 
 ### config.json
 
@@ -316,7 +334,8 @@ none of them survives only until the next upgrade, and none of them needs a rebu
     "ctrl-opt-cmd-r": "snap-to-window-below",
     "ctrl-opt-cmd-1": "set-size?width=1280&height=720"
   },
-  "defaults": { "showsCursor": false }
+  "defaults": { "showsCursor": false },
+  "captures": { "recordings": "~/Desktop" }
 }
 ```
 
@@ -578,6 +597,7 @@ unit tested; an executable target cannot be imported by a test target.
 | `Sources/VirtualDisplayCore/Overlay.swift` | Text, images and rectangles drawn over the shared window |
 | `Sources/VirtualDisplayCore/Fetch.swift` | The one outbound HTTP path, for `vd.fetch` |
 | `Sources/VirtualDisplayCore/Recording.swift` | Screenshots and `.mov` recording of the shared window |
+| `Sources/VirtualDisplayCore/SettingsWindow.swift` | The settings window; writes `config.json` |
 | `Sources/CLua/` | Lua 5.4.8, vendored verbatim. See its `README.md` |
 | `Sources/VirtualDisplayCore/Diagnostics.swift` | The `--doctor` report |
 | `bundle.sh` | Release build, icon generation, `.app` assembly, code signing |

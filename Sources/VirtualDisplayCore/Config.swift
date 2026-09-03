@@ -34,12 +34,19 @@ public struct Config: Codable, Equatable, Sendable {
         public var editRegion: Bool?
     }
 
+    /// Where screenshots and recordings go. Absent means the system folders.
+    public struct Captures: Codable, Equatable, Sendable {
+        public var screenshots: String?
+        public var recordings: String?
+    }
+
     /// Appended to the built-in presets rather than replacing them.
     public var presets: [Preset] = []
     /// `"ctrl-opt-cmd-r": "snap-to-window-below"`. The value is a command, optionally with
     /// arguments: `"set-size?width=1280&height=720"`.
     public var hotkeys: [String: String] = [:]
     public var defaults: Defaults?
+    public var captures: Captures?
 
     public init() {}
 
@@ -53,7 +60,25 @@ public struct Config: Codable, Equatable, Sendable {
         }
     }
 
+    /// Written by the settings window. Hand-editing and the UI share one file, so this
+    /// rewrites it whole: JSON has no comments to lose, but any key this version does not
+    /// know about goes away. Sorted keys and an indent keep the result diffable and
+    /// hand-editable afterwards.
+    public func save(to url: URL = ConfigPaths.file) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        try encoder.encode(self).write(to: url, options: .atomic)
+    }
+
     public var regionSizes: [RegionSize] {
         presets.map { RegionSize(name: $0.name, size: CGSize(width: $0.width, height: $0.height)) }
+    }
+
+    /// The commands the config binds a shortcut to, ignoring any arguments. A default
+    /// shortcut for one of these stands down, so rebinding replaces rather than doubles.
+    public var boundCommands: Set<String> {
+        Set(hotkeys.values.map { String($0.prefix(while: { $0 != "?" })) })
     }
 }

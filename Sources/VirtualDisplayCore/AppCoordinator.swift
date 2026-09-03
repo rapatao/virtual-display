@@ -17,6 +17,9 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     private var config = Config()
     /// Built-in presets plus whatever the config file and plugins added.
     private var presets: [RegionSize] = RegionSize.presets
+    /// Presets a plugin added, kept apart so re-reading the config file does not drop them
+    /// and unloading plugins does.
+    private var pluginPresets: [RegionSize] = []
 
     private let regionWindow = RegionWindow()
     private let outputWindow = OutputWindow()
@@ -63,6 +66,8 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             Preferences.fallbacks.isEditingRegion = defaults.editRegion ?? true
         }
         presets = RegionSize.presets + config.regionSizes
+        CaptureFiles.screenshotFolder = config.captures?.screenshots
+        CaptureFiles.recordingFolder = config.captures?.recordings
 
         state.hasScreenRecordingAccess = ScreenRecordingPermission.isGranted
         state.isEditingRegion = Preferences.isEditingRegion
@@ -100,6 +105,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         actions.toggleCursor = { [weak self] in self?.run("toggle-cursor") }
         actions.toggleLoginItem = { [weak self] in self?.run("toggle-login-item") }
         actions.copyDiagnostics = { [weak self] in self?.run("copy-diagnostics") }
+        actions.openSettings = { [weak self] in self?.run("settings") }
         actions.togglePlugins = { [weak self] in self?.run("toggle-plugins") }
         actions.reloadPlugins = { [weak self] in self?.run("reload-plugins") }
         actions.showPluginError = { [weak self] in self?.showPluginErrors() }
@@ -205,6 +211,10 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         commands.register("reload-plugins", "Re-read the Lua plugins from disk",
                           action: { [weak self] in self?.reloadPlugins() })
+        commands.register("settings", "Open the settings window: tab=presets|shortcuts|captures|plugins") { [weak self] args in
+            self?.settings.show(tab: args["tab"])
+            return nil
+        }
         commands.register("toggle-plugins", "Turn Lua plugins on or off",
                           action: { [weak self] in self?.setPlugins(!(self?.state.arePluginsEnabled ?? false)) })
         commands.register("set-plugins", "Plugins on or off: on=true|false") { [weak self] args in
@@ -312,6 +322,45 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         NSSound.beep()
     }
 
+    // MARK: Settings
+
+    private lazy var settings = SettingsWindow(environment: makeSettingsEnvironment())
+
+    private func makeSettingsEnvironment() -> SettingsWindow.Environment {
+        var environment = SettingsWindow.Environment()
+        environment.config = { [weak self] in self?.config ?? Config() }
+        environment.save = { [weak self] config in self?.applyConfig(config) }
+        environment.regionSize = { [weak self] in self?.regionWindow.frame.size ?? .zero }
+        environment.pluginsEnabled = { [weak self] in self?.state.arePluginsEnabled ?? false }
+        environment.setPluginsEnabled = { [weak self] on in self?.setPlugins(on) }
+        environment.reloadPlugins = { [weak self] in self?.reloadPlugins() }
+        environment.pluginErrors = { [weak self] in self?.lua.errors ?? [] }
+        environment.commands = { [weak self] in self?.commands.names ?? [] }
+        return environment
+    }
+
+    /// Saves the file and re-applies everything derived from it, so a change made in the
+    /// settings window takes effect without a relaunch: presets, shortcuts, and where
+    /// captures are written.
+    private func applyConfig(_ new: Config) {
+        config = new
+        do {
+            try config.save()
+        } catch {
+            report(error)
+        }
+
+        presets = RegionSize.presets + config.regionSizes + pluginPresets
+        menu?.setPresets(presets)
+        CaptureFiles.screenshotFolder = config.captures?.screenshots
+        CaptureFiles.recordingFolder = config.captures?.recordings
+
+        // Shortcuts are re-registered wholesale: rebinding one has to release the key it
+        // used to hold, and Carbon has no way to edit a registration in place.
+        HotKeyCenter.shared.unregister(owner: .app)
+        registerHotKeys()
+    }
+
     // MARK: Plugins
 
     private lazy var lua = LuaRuntime(host: makeLuaHost())
@@ -328,6 +377,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         host.addPreset = { [weak self] preset in
             guard let self else { return }
+            pluginPresets.append(preset)
             presets.append(preset)
             menu?.setPresets(presets)
         }
@@ -375,6 +425,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         HotKeyCenter.shared.unregister(owner: .plugin)
         outputWindow.overlay.removeAll()
         pluginMenuItems = []
+        pluginPresets = []
         menu?.setPluginItems([])
         presets = RegionSize.presets + config.regionSizes
         menu?.setPresets(presets)
@@ -478,7 +529,8 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             (kVK_ANSI_S, "s", "screenshot"),
             (kVK_ANSI_R, "r", "toggle-recording"),
         ]
-        for (keyCode, key, command) in defaults {
+        let rebound = config.boundCommands
+        for (keyCode, key, command) in defaults where !rebound.contains(command) {
             let registered = HotKeyCenter.shared.register(
                 keyCode: keyCode,
                 label: "ctrl-opt-cmd-\(key) -> \(command)") { [weak self] in self?.run(command) }

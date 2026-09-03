@@ -42,6 +42,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         public var toggleCursor: () -> Void = {}
         public var toggleLoginItem: () -> Void = {}
         public var copyDiagnostics: () -> Void = {}
+        public var openSettings: () -> Void = {}
         public var togglePlugins: () -> Void = {}
         public var reloadPlugins: () -> Void = {}
         public var showPluginError: () -> Void = {}
@@ -99,6 +100,9 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         [screenshotItem, recordItem].forEach(menu.addItem)
         menu.addItem(.separator())
         [cursorItem, loginItem].forEach(menu.addItem)
+        menu.addItem(.separator())
+        menu.addItem(ActionMenuItem("Settings...", key: ",", modifiers: [.command],
+                                    handler: actions.openSettings))
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Copy Diagnostics", handler: actions.copyDiagnostics))
         menu.addItem(pluginsItem)
