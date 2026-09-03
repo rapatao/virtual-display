@@ -103,6 +103,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
     private var stream: SCStream?
     private var config = SCStreamConfiguration()
     private var display: SCDisplay?
+    private static let outputVisibleKey = "showOutputWindow"
     private static let editingKey = "editRegion"
     private var isEditing = UserDefaults.standard.object(forKey: App.editingKey) as? Bool ?? true
     // Off at launch: the app comes up as a tray icon only, no windows, no capture.
@@ -205,6 +206,12 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
         // Neither is ordered on screen, so the app is still tray-only at launch.
         _ = regionWindow
         _ = outputWindow
+        // A hidden output window is invisible to the meeting's window picker, so if it
+        // was open last time, bring it back. orderFront, not makeKeyAndOrderFront: it
+        // must not steal focus on login.
+        if UserDefaults.standard.bool(forKey: Self.outputVisibleKey) {
+            outputWindow.orderFront(nil)
+        }
         // Permission is checked on first enable so launching never puts a dialog up.
         installStatusItem()
     }
@@ -359,6 +366,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelega
             outputWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
+        UserDefaults.standard.set(outputWindow.isVisible, forKey: Self.outputVisibleKey)
         syncUI()
     }
 

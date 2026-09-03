@@ -289,5 +289,12 @@ icon is regenerated only when `makeicon.swift` is newer than `VirtualDisplay.icn
 Settings > Privacy & Security > Screen & System Audio Recording, then relaunch. macOS only
 applies the change on the next launch.
 
-**"Virtual Display" is missing from the meeting's window list.** The output window must be
-on screen. Use **Show Output Window**, and do not minimise it.
+**"Virtual Display" is missing from the meeting's share list.** Two causes:
+
+- It is a **window**, not a display. In Meet, Zoom or Slack, pick the **Window** tab. It
+  will never appear under Entire Screen / Display.
+- The output window must be **on screen** to be listed at all, and it starts hidden on a
+  fresh install. Choose **Show Output Window** from the tray menu, then reopen the share
+  picker. Do not minimise it; macOS only enumerates on-screen windows.
+
+The choice is remembered, so this only comes up the first time on a given machine.
