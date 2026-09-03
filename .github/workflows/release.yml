@@ -19,9 +19,7 @@ jobs:
         run: swift --version
 
       - name: Test
-        run: |
-          swift build
-          .build/debug/VirtualDisplay --selftest
+        run: swift test
 
       # Optional. Without MACOS_CERT_P12 this is a no-op and the build is ad-hoc signed.
       - name: Import signing certificate

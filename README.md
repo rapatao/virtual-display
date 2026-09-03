@@ -74,7 +74,7 @@ timestamp, which notarization requires. Ad-hoc signing supports neither.
 
 ## Releases via GitHub Actions
 
-`.github/workflows/release.yml` builds, runs `--selftest`, signs, optionally notarizes,
+`.github/workflows/release.yml` builds, runs `swift test`, signs, optionally notarizes,
 and attaches `VirtualDisplay.zip` to a GitHub Release. It runs on any `v*` tag and can be
 triggered manually from the Actions tab, which uploads a build artifact instead of
 publishing a release.
@@ -276,23 +276,40 @@ defaults delete com.rapatao.virtual-display
 ## Development
 
 ```sh
-swift build                          # debug build
-.build/debug/VirtualDisplay --selftest   # geometry checks, prints "selftest OK"
-./bundle.sh                          # release build + app bundle
+swift build      # debug build
+swift test       # unit tests, headless, no GUI session needed
+./bundle.sh      # release build + app bundle
 ```
-
-`--selftest` covers the two pieces of pure geometry: the AppKit-to-CoreGraphics
-coordinate flip used to derive the capture rectangle, and the screen clamp applied to
-preset frames. It runs before any AppKit setup, so it works headless and in CI.
 
 ### Layout
 
+The app is a thin executable over a `VirtualDisplayCore` library, so the logic can be
+unit tested; an executable target cannot be imported by a test target.
+
 | Path | Contents |
 | --- | --- |
-| `Sources/VirtualDisplay/main.swift` | The entire app: geometry, region overlay, status item, capture stream |
-| `Package.swift` | SwiftPM manifest, no dependencies |
+| `Sources/VirtualDisplay/main.swift` | Three lines: calls `Launch.main()` |
+| `Sources/VirtualDisplayCore/Launch.swift` | Command line flags, then `NSApplication` bootstrap |
+| `Sources/VirtualDisplayCore/AppState.swift` | Every UI rule, as derived properties. Start here |
+| `Sources/VirtualDisplayCore/AppCoordinator.swift` | Owns the state, wires the pieces, handles actions |
+| `Sources/VirtualDisplayCore/CaptureController.swift` | The ScreenCaptureKit stream and nothing else |
+| `Sources/VirtualDisplayCore/RegionWindow.swift` | The floating frame: placement, presets, snapping |
+| `Sources/VirtualDisplayCore/OutputWindow.swift` | The shareable window and its frame sink |
+| `Sources/VirtualDisplayCore/StatusMenu.swift` | Menu bar item; renders `AppState`, decides nothing |
+| `Sources/VirtualDisplayCore/Geometry.swift` | Pure coordinate maths, no AppKit |
+| `Sources/VirtualDisplayCore/Preferences.swift` | Persisted settings and the login item |
+| `Sources/VirtualDisplayCore/ScreenRecordingPermission.swift` | Reading, requesting, and explaining the grant |
+| `Sources/VirtualDisplayCore/HotKeyCenter.swift` | Carbon global hot keys |
+| `Sources/VirtualDisplayCore/Diagnostics.swift` | The `--doctor` report |
 | `bundle.sh` | Release build, icon generation, `.app` assembly, code signing |
-| `makeicon.swift` | Draws `VirtualDisplay.iconset` from vectors; run via `swift makeicon.swift` |
+| `makeicon.swift` | Draws `VirtualDisplay.iconset` from vectors |
+
+### How it fits together
+
+`AppState` holds the truth; `AppCoordinator.render()` is the only thing that turns it
+into visible effects: window order, activation policy, menu, and whether capture runs.
+Actions mutate state and call `render()`. Nothing else decides what is visible, which is
+what keeps the enable, pause, permission-revoke and failure paths from disagreeing.
 
 ### How capture works
 
@@ -301,7 +318,21 @@ region frame converted into display coordinates, and `SCContentFilter(display:
 excludingWindows:)` removes the app's own two windows from the capture. Moving or
 resizing the region calls `SCStream.updateConfiguration`; dragging it to another display
 rebuilds the filter via `SCStream.updateContentFilter`. Frames arrive as
-`CMSampleBuffer`s and are enqueued into an `AVSampleBufferDisplayLayer`.
+`CMSampleBuffer`s and go to a `VideoSink`, which hops them to the main queue and into an
+`AVSampleBufferDisplayLayer`.
+
+`CaptureController` never reaches into a window: a `Source` struct supplies the rectangle
+and the window numbers to exclude. Choosing them differently (an `SCContentSharingPicker`,
+a second region) touches only the caller.
+
+### Adding things
+
+- **A menu item**: one `ActionMenuItem("Title") { ... }` in `StatusMenu`. No selector, no
+  `@objc` method elsewhere.
+- **A visibility rule**: a derived property on `AppState`, used by `render()`, covered by
+  `AppStateTests`.
+- **A global shortcut**: one `HotKeyCenter.shared.register(keyCode:) { ... }` call.
+- **A setting**: a case in `Preferences.Key` and a typed property beside it.
 
 ### Changing the icon
 
