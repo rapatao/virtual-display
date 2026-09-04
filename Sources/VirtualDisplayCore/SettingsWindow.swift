@@ -87,6 +87,17 @@ final class SettingsModel: ObservableObject {
     @Published var config: Config
     @Published var pluginsEnabled: Bool
     @Published var pluginErrors: [String]
+    /// Held here rather than in the view, so switching tabs and back does not throw away
+    /// a result and start another request.
+    @Published var updateStatus: UpdateStatus = .idle
+
+    enum UpdateStatus {
+        case idle
+        case checking
+        case upToDate
+        case available(UpdateCheck.Release)
+        case failed(String)
+    }
 
     let environment: SettingsWindow.Environment
 
@@ -148,6 +159,22 @@ final class SettingsModel: ObservableObject {
         commit()
     }
 
+    /// The button disables itself while this is in flight, so there is no second request
+    /// to guard against.
+    func checkForUpdate() {
+        updateStatus = .checking
+        UpdateCheck.latest { [weak self] result in
+            // Fetch already came back on the main queue; this only tells the compiler so.
+            MainActor.assumeIsolated {
+                switch result {
+                case .success(let release?): self?.updateStatus = .available(release)
+                case .success(nil): self?.updateStatus = .upToDate
+                case .failure(let error): self?.updateStatus = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
     func setFolder(_ path: String?, screenshots: Bool) {
         var captures = config.captures ?? Config.Captures()
         if screenshots { captures.screenshots = path } else { captures.recordings = path }
@@ -164,6 +191,7 @@ struct SettingsView: View {
         case shortcuts = "Shortcuts"
         case captures = "Captures"
         case plugins = "Plugins"
+        case about = "About"
         var id: String { rawValue }
 
         init?(name: String?) {
@@ -180,6 +208,7 @@ struct SettingsView: View {
             ShortcutsTab(model: model).tabItem { Text(Tab.shortcuts.rawValue) }.tag(Tab.shortcuts)
             CapturesTab(model: model).tabItem { Text(Tab.captures.rawValue) }.tag(Tab.captures)
             PluginsTab(model: model).tabItem { Text(Tab.plugins.rawValue) }.tag(Tab.plugins)
+            AboutTab(model: model).tabItem { Text(Tab.about.rawValue) }.tag(Tab.about)
         }
         .padding(16)
         .frame(minWidth: 520, minHeight: 420)
@@ -487,6 +516,86 @@ private struct PluginsTab: View {
                 }
             }
             Spacer()
+        }
+    }
+}
+
+/// Who this is, which version is running, and whether a newer one exists. Everything here
+/// comes out of the bundle, so it cannot disagree with what was actually shipped.
+private struct AboutTab: View {
+    @ObservedObject var model: SettingsModel
+
+    private var info: [String: Any] { Bundle.main.infoDictionary ?? [:] }
+    /// Present only in a real bundle; `swift run` shows the version without a link.
+    private var license: URL? { Bundle.main.url(forResource: "LICENSE", withExtension: nil) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                if let icon = NSApp.applicationIconImage {
+                    Image(nsImage: icon).resizable().frame(width: 64, height: 64)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Virtual Display").font(.title2).bold()
+                    // Selectable: it is the first thing a bug report needs.
+                    Text("Version \(UpdateCheck.currentVersion)")
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    if let copyright = info["NSHumanReadableCopyright"] as? String {
+                        Text(copyright).font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            HStack {
+                Button("GitHub") {
+                    NSWorkspace.shared.open(URL(string: "https://github.com/\(UpdateCheck.repository)")!)
+                }
+                if let license {
+                    Button("License") { NSWorkspace.shared.open(license) }
+                }
+                Spacer()
+            }
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Button("Check for Updates") { model.checkForUpdate() }
+                    .disabled(isChecking)
+                status
+                Spacer()
+            }
+
+            Text("Updates are not installed for you. With Homebrew, "
+                 + "brew upgrade --cask virtual-display.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
+    }
+
+    private var isChecking: Bool {
+        if case .checking = model.updateStatus { return true }
+        return false
+    }
+
+    @ViewBuilder private var status: some View {
+        switch model.updateStatus {
+        case .idle:
+            EmptyView()
+        case .checking:
+            Text("Checking...").foregroundStyle(.secondary)
+        case .upToDate:
+            Text("Up to date.").foregroundStyle(.secondary)
+        case .available(let release):
+            Text("Version \(release.version) is available.")
+            Button("Open Release Page") {
+                if let url = URL(string: release.page) { NSWorkspace.shared.open(url) }
+            }
+        // A failed check must not read as "up to date": that is the one wrong answer here.
+        case .failed(let message):
+            Text(message).foregroundStyle(.red).lineLimit(2)
         }
     }
 }

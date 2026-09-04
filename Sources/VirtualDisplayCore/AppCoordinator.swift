@@ -106,6 +106,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         actions.toggleLoginItem = { [weak self] in self?.run("toggle-login-item") }
         actions.copyDiagnostics = { [weak self] in self?.run("copy-diagnostics") }
         actions.openSettings = { [weak self] in self?.run("settings") }
+        actions.openAbout = { [weak self] in self?.run("settings", ["tab": "about"]) }
         actions.togglePlugins = { [weak self] in self?.run("toggle-plugins") }
         actions.reloadPlugins = { [weak self] in self?.run("reload-plugins") }
         actions.showPluginError = { [weak self] in self?.showPluginErrors() }
@@ -211,7 +212,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         commands.register("reload-plugins", "Re-read the Lua plugins from disk",
                           action: { [weak self] in self?.reloadPlugins() })
-        commands.register("settings", "Open the settings window: tab=presets|shortcuts|captures|plugins") { [weak self] args in
+        commands.register("settings", "Open the settings window: tab=presets|shortcuts|captures|plugins|about") { [weak self] args in
             self?.settings.show(tab: args["tab"])
             return nil
         }

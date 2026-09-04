@@ -25,8 +25,9 @@ public struct FetchRequest: Sendable {
     }
 }
 
-/// The one place the app talks to the network, and it only ever does so because a plugin
-/// asked. Nothing is fetched on the app's own initiative.
+/// The one place the app talks to the network, and it only ever does so because someone
+/// asked: a plugin, or the Check for Updates button. Nothing is fetched on a timer or on
+/// the app's own initiative.
 ///
 /// Bodies are capped and decoded as text: plugins put text on screen, and an unbounded
 /// download into a menu bar app is nobody's idea of a feature.

@@ -82,6 +82,7 @@ presence; turn mirroring off and it goes back to tray-only.
 | **Show Cursor in Share** | Whether your pointer appears in what you share. |
 | **Launch at Login** | Registers the app with macOS via `SMAppService`. |
 | **Copy Diagnostics** | Copies a report on screen state to the clipboard and displays it. Same output as `--doctor`. |
+| **About Virtual Display...** | Version, license, and a **Check for Updates** button. |
 | **Quit Virtual Display** | `Cmd Q` |
 
 ### Keyboard shortcuts
@@ -180,7 +181,7 @@ none of them survives only until the next upgrade, and none of them needs a rebu
 
 ### Settings
 
-**Settings...** in the menu, or `Cmd ,`, in four tabs:
+**Settings...** in the menu, or `Cmd ,`, in five tabs:
 
 | Tab | Does |
 | --- | --- |
@@ -188,6 +189,7 @@ none of them survives only until the next upgrade, and none of them needs a rebu
 | Shortcuts | Click a shortcut, press the keys. Escape cancels, Delete clears. Recording one for an action replaces its default, and the menu updates to match |
 | Captures | Where screenshots and recordings are written, or **Default** for the system folders |
 | Plugins | The plugin switch, the folder, a reload button, and any load errors |
+| About | Version, copyright, links to the repository and the bundled licence, and **Check for Updates** |
 
 While the window is open the app takes a Dock icon, so it can be found again after it goes
 behind something. Global shortcuts are handed back to the system while you are recording
@@ -199,6 +201,11 @@ works - though a save rewrites the file whole, dropping any key this version doe
 about.
 
 `open 'virtualdisplay://settings?tab=shortcuts'` opens it on a particular tab.
+
+**Check for Updates** asks GitHub for the latest release and compares it with the running
+version, only when you press it: there is no background check and nothing is sent. A newer
+release offers a button to open its page; installing it is still `brew upgrade --cask
+virtual-display` or a download.
 
 ### config.json
 

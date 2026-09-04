@@ -43,6 +43,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         public var toggleLoginItem: () -> Void = {}
         public var copyDiagnostics: () -> Void = {}
         public var openSettings: () -> Void = {}
+        public var openAbout: () -> Void = {}
         public var togglePlugins: () -> Void = {}
         public var reloadPlugins: () -> Void = {}
         public var showPluginError: () -> Void = {}
@@ -103,6 +104,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Settings...", key: ",", modifiers: [.command],
                                     handler: actions.openSettings))
+        menu.addItem(ActionMenuItem("About Virtual Display...", handler: actions.openAbout))
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Copy Diagnostics", handler: actions.copyDiagnostics))
         menu.addItem(pluginsItem)
