@@ -60,6 +60,21 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(config.regionSizes.first?.size, CGSize(width: 700, height: 1000))
     }
 
+    /// The list is typed by hand, so it matches on either the name or the bundle id and
+    /// does not care about casing; getting this wrong puts an app on the call.
+    func testFollowIgnoresMatchNameOrBundleIDInAnyCase() throws {
+        let url = try write("""
+        { "followIgnores": ["slack", "com.1password.1password"] }
+        """)
+        let config = Config.load(from: url)
+        XCTAssertTrue(config.ignoresFocus(app: "Slack", bundleID: "com.tinyspeck.slackmacgap"))
+        XCTAssertTrue(config.ignoresFocus(app: "1Password", bundleID: "com.1password.1Password"))
+        XCTAssertFalse(config.ignoresFocus(app: "Safari", bundleID: "com.apple.Safari"))
+        // A partial name is not a match: "Sla" must not silently cover Slack.
+        XCTAssertFalse(config.ignoresFocus(app: "Slack Helper", bundleID: nil))
+        XCTAssertFalse(Config().ignoresFocus(app: "Slack", bundleID: nil))
+    }
+
     func testMissingFileIsTheNormalCase() {
         let missing = URL(fileURLWithPath: "/nonexistent/virtual-display/config.json")
         XCTAssertEqual(Config.load(from: missing), Config())
@@ -73,7 +88,11 @@ final class ConfigTests: XCTestCase {
     func testPartialFileKeepsTheRestAtItsDefault() throws {
         let url = try write("{ \"hotkeys\": { \"cmd-f1\": \"toggle-pause\" } }")
         let config = Config.load(from: url)
+        // The key that IS there must survive: a missing "presets" used to discard the
+        // whole file, which is how a new key would silently drop everyone's shortcuts.
+        XCTAssertEqual(config.hotkeys["cmd-f1"], "toggle-pause")
         XCTAssertTrue(config.presets.isEmpty)
+        XCTAssertTrue(config.followIgnores.isEmpty)
         XCTAssertNil(config.defaults)
     }
 }

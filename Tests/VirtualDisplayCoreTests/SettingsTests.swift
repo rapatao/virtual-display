@@ -84,6 +84,21 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue(model.config.hotkeys.isEmpty)
     }
 
+    /// The list is matched whole and case-insensitively, so a second spelling of an app
+    /// already on it is noise, not a new rule.
+    func testFollowIgnoresAreAddedOnceAndRemovable() {
+        let model = model()
+        model.addFollowIgnore("Slack")
+        model.addFollowIgnore("slack")
+        model.addFollowIgnore("  ")
+        XCTAssertEqual(model.config.followIgnores, ["Slack"])
+
+        model.addFollowIgnore("zoom.us")
+        model.removeFollowIgnores(IndexSet(integer: 0))
+        XCTAssertEqual(model.config.followIgnores, ["zoom.us"])
+        XCTAssertEqual(saved.count, 3, "every edit writes the file; there is no Save button")
+    }
+
     func testCaptureFoldersAreSetAndCleared() {
         let model = model()
         model.setFolder("/tmp/shots", screenshots: true)

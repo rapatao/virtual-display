@@ -39,6 +39,7 @@ public struct Config: Codable, Equatable, Sendable {
         /// toggled, their choice wins and stays in `defaults read`.
         public var showsCursor: Bool?
         public var editRegion: Bool?
+        public var followFocus: Bool?
     }
 
     /// Where screenshots and recordings go. Absent means the system folders.
@@ -54,8 +55,31 @@ public struct Config: Codable, Equatable, Sendable {
     public var hotkeys: [String: String] = [:]
     public var defaults: Defaults?
     public var captures: Captures?
+    /// Apps that follow mode leaves alone: the meeting app itself, a password manager,
+    /// anything you switch to mid-call without wanting it on the call.
+    public var followIgnores: [String] = []
 
     public init() {}
+
+    /// A hand-written file leaves most keys out, and a synthesized decoder treats a
+    /// missing key as an error even where the property has a default: without this, a
+    /// file with no `presets` is thrown away whole, taking the keys it did have with it,
+    /// and adding any key here would discard every config written before it.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        presets = try container.decodeIfPresent([Preset].self, forKey: .presets) ?? []
+        hotkeys = try container.decodeIfPresent([String: String].self, forKey: .hotkeys) ?? [:]
+        defaults = try container.decodeIfPresent(Defaults.self, forKey: .defaults)
+        captures = try container.decodeIfPresent(Captures.self, forKey: .captures)
+        followIgnores = try container.decodeIfPresent([String].self, forKey: .followIgnores) ?? []
+    }
+
+    /// Matched case-insensitively against the app's name and its bundle id, so both
+    /// `"Slack"` and `"com.tinyspeck.slackmacgap"` work and neither needs exact casing.
+    public func ignoresFocus(app name: String?, bundleID: String?) -> Bool {
+        let candidates = [name, bundleID].compactMap { $0?.lowercased() }
+        return followIgnores.contains { candidates.contains($0.lowercased()) }
+    }
 
     public static func load(from url: URL = ConfigPaths.file) -> Config {
         guard let data = try? Data(contentsOf: url) else { return Config() }

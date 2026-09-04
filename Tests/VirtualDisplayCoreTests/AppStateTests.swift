@@ -90,6 +90,20 @@ final class AppStateTests: XCTestCase {
         XCTAssertFalse(state.canToggleMirroring)
     }
 
+    /// Pause freezes the picture, so it has to freeze what the picture is of: following an
+    /// app switch while paused would silently change what resumes.
+    func testPauseSuspendsFollowingWithoutForgettingTheToggle() {
+        var state = AppState()
+        XCTAssertFalse(state.isFollowingFocus)
+        state.followsFocus = true
+        XCTAssertTrue(state.isFollowingFocus)
+        state.isPaused = true
+        XCTAssertFalse(state.isFollowingFocus)
+        XCTAssertTrue(state.followsFocus)   // the menu still shows it on
+        state.isPaused = false
+        XCTAssertTrue(state.isFollowingFocus)
+    }
+
     func testPauseIsNotOfferableWithNothingRunning() {
         XCTAssertFalse(AppState().canPause)
     }

@@ -9,6 +9,8 @@ public struct AppState: Equatable, Sendable, Codable {
     /// Session-only, never persisted: a pause is something you undo within a meeting.
     public var isPaused = false
     public var isEditingRegion = true
+    /// The region tracks the window you are working in, wherever it goes.
+    public var followsFocus = false
     public var showsCursor = true
     public var isLoginItemEnabled = false
     /// Session-only, like pause: a recording never survives a restart.
@@ -32,6 +34,10 @@ public struct AppState: Equatable, Sendable, Codable {
     /// Visible while you are placing it, or while mirroring makes it mark what is being
     /// shared. Neither, and it has nothing to say.
     public var showsRegionWindow: Bool { isMirroring || isEditingRegion }
+
+    /// A pause freezes the picture, so it has to freeze what the picture is of too:
+    /// following an app switch while paused would silently change what resumes.
+    public var isFollowingFocus: Bool { followsFocus && !isPaused }
 
     /// Locked means click-through, so the window you dragged into the region stays usable.
     public var regionAcceptsMouse: Bool { isEditingRegion }

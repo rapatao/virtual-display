@@ -15,6 +15,8 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
         public var config: () -> Config = { Config() }
         public var save: (Config) -> Void = { _ in }
         public var regionSize: () -> CGSize = { .zero }
+        public var followsFocus: () -> Bool = { false }
+        public var setFollowsFocus: (Bool) -> Void = { _ in }
         public var pluginsEnabled: () -> Bool = { false }
         public var setPluginsEnabled: (Bool) -> Void = { _ in }
         public var reloadPlugins: () -> Void = {}
@@ -50,7 +52,7 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
         let model = SettingsModel(environment: environment)
         model.tab = SettingsView.Tab(name: tab) ?? .presets
         self.model = model
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 460),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 480),
                               styleMask: [.titled, .closable, .resizable],
                               backing: .buffered,
                               defer: false)
@@ -66,6 +68,13 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
         environment.onVisibilityChanged(true)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// The file changed underneath an open window: re-read it, so the copy being edited is
+    /// the one that is now on disk rather than the one the next keystroke would write back.
+    public func refresh() {
+        model?.config = environment.config()
+        model?.followsFocus = environment.followsFocus()
     }
 
     public func windowWillClose(_ notification: Notification) {
@@ -85,6 +94,7 @@ final class SettingsModel: ObservableObject {
     /// already open.
     @Published var tab: SettingsView.Tab = .presets
     @Published var config: Config
+    @Published var followsFocus: Bool
     @Published var pluginsEnabled: Bool
     @Published var pluginErrors: [String]
     /// Held here rather than in the view, so switching tabs and back does not throw away
@@ -104,12 +114,34 @@ final class SettingsModel: ObservableObject {
     init(environment: SettingsWindow.Environment) {
         self.environment = environment
         config = environment.config()
+        followsFocus = environment.followsFocus()
         pluginsEnabled = environment.pluginsEnabled()
         pluginErrors = environment.pluginErrors()
     }
 
     func commit() {
         environment.save(config)
+    }
+
+    func setFollowsFocus(_ on: Bool) {
+        followsFocus = on
+        environment.setFollowsFocus(on)
+    }
+
+    /// Duplicates are not an error, they are just noise in the list, so adding one is a
+    /// no-op rather than a second row that does nothing.
+    func addFollowIgnore(_ name: String) {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty,
+              !config.followIgnores.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame })
+        else { return }
+        config.followIgnores.append(name)
+        commit()
+    }
+
+    func removeFollowIgnores(_ offsets: IndexSet) {
+        config.followIgnores.remove(atOffsets: offsets)
+        commit()
     }
 
     func setPlugins(_ on: Bool) {
@@ -189,10 +221,22 @@ struct SettingsView: View {
     enum Tab: String, CaseIterable, Identifiable {
         case presets = "Presets"
         case shortcuts = "Shortcuts"
+        case follow = "Follow"
         case captures = "Captures"
         case plugins = "Plugins"
         case about = "About"
         var id: String { rawValue }
+
+        var symbol: String {
+            switch self {
+            case .presets: return "rectangle.3.group"
+            case .shortcuts: return "keyboard"
+            case .follow: return "dot.viewfinder"
+            case .captures: return "photo.on.rectangle"
+            case .plugins: return "puzzlepiece.extension"
+            case .about: return "info.circle"
+            }
+        }
 
         init?(name: String?) {
             guard let name,
@@ -202,16 +246,41 @@ struct SettingsView: View {
         }
     }
 
+    /// A sidebar rather than a tab bar: a tab bar hides every title behind an overflow
+    /// chevron the moment they stop fitting, which is a settings window that looks like it
+    /// has no sections at all. A sidebar just gets narrower.
+    ///
+    /// A plain HStack, not NavigationSplitView: this is hosted in an NSHostingView with no
+    /// scene around it, and the navigation container needs one to lay its columns out.
     var body: some View {
-        TabView(selection: $model.tab) {
-            PresetsTab(model: model).tabItem { Text(Tab.presets.rawValue) }.tag(Tab.presets)
-            ShortcutsTab(model: model).tabItem { Text(Tab.shortcuts.rawValue) }.tag(Tab.shortcuts)
-            CapturesTab(model: model).tabItem { Text(Tab.captures.rawValue) }.tag(Tab.captures)
-            PluginsTab(model: model).tabItem { Text(Tab.plugins.rawValue) }.tag(Tab.plugins)
-            AboutTab(model: model).tabItem { Text(Tab.about.rawValue) }.tag(Tab.about)
+        HStack(spacing: 0) {
+            List(selection: Binding(get: { model.tab },
+                                    set: { model.tab = $0 ?? model.tab })) {
+                ForEach(Tab.allCases) { tab in
+                    Label(tab.rawValue, systemImage: tab.symbol).tag(tab)
+                }
+            }
+            .listStyle(.sidebar)
+            .frame(width: 170)
+
+            Divider()
+
+            pane
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(16)
-        .frame(minWidth: 520, minHeight: 420)
+        .frame(minWidth: 560, minHeight: 420)
+    }
+
+    @ViewBuilder private var pane: some View {
+        switch model.tab {
+        case .presets: PresetsTab(model: model)
+        case .shortcuts: ShortcutsTab(model: model)
+        case .follow: FollowTab(model: model)
+        case .captures: CapturesTab(model: model)
+        case .plugins: PluginsTab(model: model)
+        case .about: AboutTab(model: model)
+        }
     }
 }
 
@@ -423,6 +492,72 @@ final class ShortcutRecorder: NSButton {
         monitor = nil
         recording = false
         setSuspended?(false)
+    }
+}
+
+/// The follow toggle and the apps it leaves alone. Picking from the running apps rather
+/// than only typing is the point: the list matches whole names, so a typo is a rule that
+/// silently never fires.
+private struct FollowTab: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("Follow focused window", isOn: Binding(get: { model.followsFocus },
+                                                          set: { model.setFollowsFocus($0) }))
+                .toggleStyle(.switch)
+
+            Text("The region moves onto the window you are working in, and keeps up as "
+                 + "that window is moved or resized. Apps listed below are left alone. "
+                 + "Turn this off to place the region by hand again.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Each row removes itself. The row is an editable field edge to edge, so a
+            // click lands in the text rather than selecting the row, which leaves a
+            // selection-driven Remove button unreachable.
+            List {
+                ForEach(model.config.followIgnores.indices, id: \.self) { index in
+                    HStack(spacing: 8) {
+                        TextField("App name or bundle id",
+                                  text: Binding(get: { model.config.followIgnores[index] },
+                                                set: { model.config.followIgnores[index] = $0
+                                                       model.commit() }))
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            model.removeFollowIgnores(IndexSet(integer: index))
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .help("Remove \(model.config.followIgnores[index])")
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .border(.separator)
+
+            HStack {
+                Menu("Add App") {
+                    ForEach(runningApps, id: \.self) { name in
+                        Button(name) { model.addFollowIgnore(name) }
+                    }
+                }
+                .fixedSize()
+                Button("Add Manually") { model.addFollowIgnore("New app") }
+                Spacer()
+            }
+        }
+    }
+
+    /// Only apps with a Dock presence: an agent app has no ordinary window to follow, so
+    /// listing one would offer a rule that could never match anyway.
+    private var runningApps: [String] {
+        let names = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier }
+            .compactMap(\.localizedName)
+        return Array(Set(names)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 }
 

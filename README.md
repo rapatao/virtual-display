@@ -78,6 +78,7 @@ presence; turn mirroring off and it goes back to tray-only.
 | **Mirroring** | Starts and stops capture, and opens/closes the output window. `Ctrl Opt Cmd M`. Disabled while permission is missing. |
 | **Pause** | Blanks the share without closing the output window, so the meeting keeps it selected. `Ctrl Opt Cmd P`. |
 | **Edit Region** | On: the frame is red, draggable and resizable. Off: green and click-through. |
+| **Follow Focused Window** | The region jumps to the front window of whatever app you switch to, see below. |
 | **Region Presets** | Size and position presets, see below. |
 | **Show Cursor in Share** | Whether your pointer appears in what you share. |
 | **Launch at Login** | Registers the app with macOS via `SMAppService`. |
@@ -162,6 +163,41 @@ Presets are clamped to the screen, so the frame can never be parked off-screen o
 larger than the display it sits on. Choosing a preset while the frame is hidden turns
 **Edit Region** on so you can see where it landed.
 
+### Follow Focused Window
+
+**Follow Focused Window** does that snap automatically: the region moves and resizes onto
+whichever window you are working in, so the meeting sees it without you touching the
+frame. It keeps up with that window as you move or resize it, and follows a switch between
+two windows of the *same* app as well as between apps. Turning it on snaps immediately.
+
+While it is on, the region is not yours to place: the next check puts it back on the
+focused window. Turn it off to position the frame by hand.
+
+macOS has no per-window focus notification outside the Accessibility API, and this app
+deliberately does not ask for that grant, so follow mode checks the frontmost window three
+times a second using the window list it already reads for **Snap to Window Below**. The
+timer only runs while following is actually on.
+
+Some apps should never drag the region onto the call: the meeting app itself, a password
+manager, a terminal with secrets in the scrollback. **Settings... > Follow** holds the
+list; **Add App** picks from what is running, rows can be edited by hand for an app that is
+not, and each row removes itself with the button beside it. Follow mode skips those apps, leaving the region on whatever it followed last.
+
+The same list in `config.json`, for a machine you set up from a file:
+
+```json
+{ "followIgnores": ["Slack", "zoom.us", "com.1password.1password"] }
+```
+
+Each entry is matched, case-insensitively, against the app's name as it appears in the
+menu bar or against its bundle id (`osascript -e 'id of app "Slack"'`). Whole names only,
+no prefixes: `"Slack"` does not cover `"Slack Helper"`.
+
+Pause suspends it, so a paused share cannot quietly change what it resumes to. The toggle
+stays on and takes effect again when you resume. It is remembered across launches, and can
+be turned on or off from a shortcut or a script like anything else
+(`virtualdisplay://toggle-follow-focus`).
+
 ---
 
 ## Customising without a new release
@@ -181,12 +217,13 @@ none of them survives only until the next upgrade, and none of them needs a rebu
 
 ### Settings
 
-**Settings...** in the menu, or `Cmd ,`, in five tabs:
+**Settings...** in the menu, or `Cmd ,`. Sections are listed down the left:
 
-| Tab | Does |
+| Section | Does |
 | --- | --- |
 | Presets | Type a name and a size, or **Add Current Region Size** to capture the region as it is now. Rows are editable in place |
 | Shortcuts | Click a shortcut, press the keys. Escape cancels, Delete clears. Recording one for an action replaces its default, and the menu updates to match |
+| Follow | The Follow Focused Window switch, and the list of apps it leaves alone. **Add App** picks from what is running, so the name is spelled the way the matcher expects; each row has its own remove button |
 | Captures | Where screenshots and recordings are written, or **Default** for the system folders |
 | Plugins | The plugin switch, the folder, a reload button, and any load errors |
 | About | Version, copyright, links to the repository and the bundled licence, and **Check for Updates** |
@@ -198,9 +235,10 @@ one, otherwise Carbon would run the action instead of capturing the keys.
 There is no Save button: every change is written to `config.json` immediately and applied
 without a relaunch. The window and the file are the same settings, so hand-editing still
 works - though a save rewrites the file whole, dropping any key this version does not know
-about.
+about. After hand-editing, `open 'virtualdisplay://reload-config'` applies the file
+without a relaunch, and refreshes the settings window if it is open.
 
-`open 'virtualdisplay://settings?tab=shortcuts'` opens it on a particular tab.
+`open 'virtualdisplay://settings?tab=shortcuts'` opens it on a particular section.
 
 **Check for Updates** asks GitHub for the latest release and compares it with the running
 version, only when you press it: there is no background check and nothing is sent. A newer
@@ -217,7 +255,8 @@ virtual-display` or a download.
     "ctrl-opt-cmd-1": "set-size?width=1280&height=720"
   },
   "defaults": { "showsCursor": false },
-  "captures": { "recordings": "~/Desktop" }
+  "captures": { "recordings": "~/Desktop" },
+  "followIgnores": ["Slack", "com.1password.1password"]
 }
 ```
 
@@ -226,7 +265,10 @@ from the table below, with arguments in URL query form. Shortcut specs are modif
 one key: `cmd`, `ctrl`, `opt` (or `alt`), `shift`, then a letter, digit, `f1`-`f20`, an
 arrow, `space`, `return`, `tab`, `escape`, `delete`, `home`, `end`, `pageup`, `pagedown`,
 or a punctuation key. `defaults` only applies to settings you have never toggled in the
-menu; once you toggle one, your choice wins.
+menu; once you toggle one, your choice wins. `followIgnores` is the list of apps
+[Follow Focused Window](#follow-focused-window) leaves alone.
+
+Every key is optional; the ones you leave out keep their defaults.
 
 A missing file is normal, and a malformed one is logged and ignored rather than stopping
 the app from launching.
@@ -244,6 +286,7 @@ open 'virtualdisplay://set-region?x=100&y=100&w=960&h=540'
 | `toggle-mirroring`, `set-mirroring` | `on=true\|false` |
 | `toggle-pause`, `set-pause` | `on=` |
 | `toggle-edit-region`, `set-edit-region` | `on=` |
+| `toggle-follow-focus`, `set-follow-focus` | `on=` |
 | `set-size` | `name=<preset prefix>`, or `width=` and `height=` |
 | `set-spot` | `name=center\|top-left\|top-right\|bottom-left\|bottom-right` |
 | `set-region` | `x= y= w= h=` in screen points |
@@ -256,6 +299,7 @@ open 'virtualdisplay://set-region?x=100&y=100&w=960&h=540'
 | `state` | prints `AppState` as JSON |
 | `commands` | lists every command, including any a plugin added |
 | `reload-plugins` | re-reads the plugins directory |
+| `reload-config` | re-reads `config.json`, so a hand-edit applies without a relaunch |
 | `set-overlay` | `id=` plus `text=` or `image=`, and `x= y= w= h= size= color= background= align= alpha= z=` |
 | `clear-overlay`, `clear-overlays` | `id=` / everything |
 
@@ -278,7 +322,7 @@ process can rewrite must not be loaded.
 | --- | --- |
 | `vd.command(name, args)` | Runs any command. Returns its result, or `nil, message` |
 | `vd.register(name, fn)` | Adds a command, reachable from `virtualdisplay://` too |
-| `vd.on(event, fn)` | `mirroring`, `pause`, `edit_region`, `region_moved`, `capture_failed`, `menu_will_open` |
+| `vd.on(event, fn)` | `mirroring`, `pause`, `edit_region`, `follow_focus`, `region_moved`, `capture_failed`, `menu_will_open` |
 | `vd.hotkey(spec, fn)` | Global shortcut, same spec format as the config file |
 | `vd.menu(title, fn)` | Adds a menu bar item |
 | `vd.preset(name, width, height)` | Adds a region preset |
@@ -428,6 +472,7 @@ Stored in `UserDefaults` under `com.rapatao.virtual-display`:
 | `NSWindow Frame RegionWindow` | Region frame position and size |
 | `NSWindow Frame OutputWindow` | Output window position and size |
 | `editRegion` | Edit Region toggle |
+| `followFocus` | Follow Focused Window toggle. Absent means off |
 | `showsCursor` | Show Cursor in Share toggle |
 | `didRequestScreenRecordingAccess` | Whether the system permission prompt has been shown |
 | `enablePlugins` | Enable Plugins toggle. Absent means off |

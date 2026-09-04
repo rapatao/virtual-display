@@ -34,6 +34,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         public var toggleMirroring: () -> Void = {}
         public var togglePause: () -> Void = {}
         public var toggleEditRegion: () -> Void = {}
+        public var toggleFollowFocus: () -> Void = {}
         public var applySize: (RegionSize) -> Void = { _ in }
         public var applySpot: (RegionSpot) -> Void = { _ in }
         public var snapToWindowBelow: () -> Void = {}
@@ -58,6 +59,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     private let mirroringItem: ActionMenuItem
     private let pauseItem: ActionMenuItem
     private let editItem: ActionMenuItem
+    private let followItem: ActionMenuItem
     private let presetItem = NSMenuItem(title: "Region Presets", action: nil, keyEquivalent: "")
     private let screenshotItem: ActionMenuItem
     private let recordItem: ActionMenuItem
@@ -79,6 +81,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
                                    modifiers: [.control, .option, .command],
                                    handler: actions.togglePause)
         editItem = ActionMenuItem("Edit Region", handler: actions.toggleEditRegion)
+        followItem = ActionMenuItem("Follow Focused Window", handler: actions.toggleFollowFocus)
         screenshotItem = ActionMenuItem("Take Screenshot", key: "s",
                                         modifiers: [.control, .option, .command],
                                         handler: actions.takeScreenshot)
@@ -95,7 +98,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false   // otherwise AppKit overrides our isEnabled flags
 
-        [accessItem, mirroringItem, pauseItem, editItem].forEach(menu.addItem)
+        [accessItem, mirroringItem, pauseItem, editItem, followItem].forEach(menu.addItem)
         menu.addItem(presetItem)
         menu.addItem(.separator())
         [screenshotItem, recordItem].forEach(menu.addItem)
@@ -205,6 +208,8 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         // task you do before joining a call, not something gated on capture running.
         editItem.isEnabled = true
         editItem.state = state.isEditingRegion ? .on : .off
+        followItem.isEnabled = true
+        followItem.state = state.followsFocus ? .on : .off
         presetItem.isEnabled = true
         // Both grab the output window, so both need it on screen.
         screenshotItem.isEnabled = state.canCaptureOutput

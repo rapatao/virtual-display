@@ -9,6 +9,7 @@ public enum Preferences {
 
     public enum Key: String, CaseIterable {
         case editRegion
+        case followFocus
         case showsCursor
         case didRequestScreenRecordingAccess
         case enablePlugins
@@ -18,6 +19,7 @@ public enum Preferences {
     /// file. Set once at launch, before anything reads a preference.
     public struct Fallbacks {
         public var isEditingRegion = true
+        public var followsFocus = false
         public var showsCursor = true
         public init() {}
     }
@@ -38,6 +40,11 @@ public enum Preferences {
     public static var isEditingRegion: Bool {
         get { bool(.editRegion, default: fallbacks.isEditingRegion) }
         set { set(newValue, .editRegion) }
+    }
+
+    public static var followsFocus: Bool {
+        get { bool(.followFocus, default: fallbacks.followsFocus) }
+        set { set(newValue, .followFocus) }
     }
 
     public static var showsCursor: Bool {

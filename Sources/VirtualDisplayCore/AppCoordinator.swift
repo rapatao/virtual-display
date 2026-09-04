@@ -64,6 +64,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         if let defaults = config.defaults {
             Preferences.fallbacks.showsCursor = defaults.showsCursor ?? true
             Preferences.fallbacks.isEditingRegion = defaults.editRegion ?? true
+            Preferences.fallbacks.followsFocus = defaults.followFocus ?? false
         }
         presets = RegionSize.presets + config.regionSizes
         CaptureFiles.screenshotFolder = config.captures?.screenshots
@@ -71,6 +72,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
 
         state.hasScreenRecordingAccess = ScreenRecordingPermission.isGranted
         state.isEditingRegion = Preferences.isEditingRegion
+        state.followsFocus = Preferences.followsFocus
         state.showsCursor = Preferences.showsCursor
         state.isLoginItemEnabled = LoginItem.isEnabled
         state.arePluginsEnabled = Preferences.pluginsEnabled
@@ -93,6 +95,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         actions.toggleMirroring = { [weak self] in self?.run("toggle-mirroring") }
         actions.togglePause = { [weak self] in self?.run("toggle-pause") }
         actions.toggleEditRegion = { [weak self] in self?.run("toggle-edit-region") }
+        actions.toggleFollowFocus = { [weak self] in self?.run("toggle-follow-focus") }
         actions.applySize = { [weak self] preset in
             self?.run("set-size", ["name": preset.name])
         }
@@ -157,6 +160,13 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             setEditing(try args.bool("on"))
             return nil
         }
+        commands.register("toggle-follow-focus", "Follow the focused app's front window on or off",
+                          action: { [weak self] in self?.setFollowFocus(!(self?.state.followsFocus ?? false)) })
+        commands.register("set-follow-focus", "Follow focus on or off: on=true|false") { [weak self] args in
+            guard let self else { return nil }
+            setFollowFocus(try args.bool("on"))
+            return nil
+        }
         commands.register("set-size", "Resize the region: name=<preset>, or width= and height=") { [weak self] args in
             guard let self else { return nil }
             let preset = try size(from: args)
@@ -212,7 +222,16 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         commands.register("reload-plugins", "Re-read the Lua plugins from disk",
                           action: { [weak self] in self?.reloadPlugins() })
-        commands.register("settings", "Open the settings window: tab=presets|shortcuts|captures|plugins|about") { [weak self] args in
+        commands.register("reload-config", "Re-read config.json from disk") { [weak self] _ in
+            guard let self else { return nil }
+            // An open settings window is holding its own copy, which the file on disk has
+            // just contradicted; it has to be told, or its next keystroke writes the old
+            // one back over the hand-edit.
+            adopt(Config.load())
+            settings.refresh()
+            return nil
+        }
+        commands.register("settings", "Open the settings window: tab=presets|shortcuts|follow|captures|plugins|about") { [weak self] args in
             self?.settings.show(tab: args["tab"])
             return nil
         }
@@ -332,6 +351,8 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         environment.config = { [weak self] in self?.config ?? Config() }
         environment.save = { [weak self] config in self?.applyConfig(config) }
         environment.regionSize = { [weak self] in self?.regionWindow.frame.size ?? .zero }
+        environment.followsFocus = { [weak self] in self?.state.followsFocus ?? false }
+        environment.setFollowsFocus = { [weak self] on in self?.setFollowFocus(on) }
         environment.pluginsEnabled = { [weak self] in self?.state.arePluginsEnabled ?? false }
         environment.setPluginsEnabled = { [weak self] on in self?.setPlugins(on) }
         environment.reloadPlugins = { [weak self] in self?.reloadPlugins() }
@@ -352,12 +373,18 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     /// settings window takes effect without a relaunch: presets, shortcuts, and where
     /// captures are written.
     private func applyConfig(_ new: Config) {
-        config = new
         do {
-            try config.save()
+            try new.save()
         } catch {
             report(error)
         }
+        adopt(new)
+    }
+
+    /// Everything derived from the config file, without writing it back: what the settings
+    /// window needs after a save, and what `reload-config` needs after a hand-edit.
+    private func adopt(_ new: Config) {
+        config = new
 
         presets = RegionSize.presets + config.regionSizes + pluginPresets
         menu?.setPresets(presets)
@@ -468,6 +495,9 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         if previous.isEditingRegion != state.isEditingRegion {
             lua.emit("edit_region", ["on": state.isEditingRegion])
         }
+        if previous.followsFocus != state.followsFocus {
+            lua.emit("follow_focus", ["on": state.followsFocus])
+        }
     }
 
     private var lastState: AppState?
@@ -576,6 +606,8 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         // from whatever you are about to drag into the region.
         setVisible(outputWindow, state.showsOutputWindow)
 
+        setFollowing(state.isFollowingFocus)
+
         let policy: NSApplication.ActivationPolicy = state.wantsDockIcon ? .regular : .accessory
         if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
 
@@ -671,6 +703,59 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     private func moveRegion(_ move: (RegionWindow) -> Void) {
         if !state.showsRegionWindow { setEditing(true) }
         move(regionWindow)
+    }
+
+    // MARK: Follow focus
+
+    private var followTimer: Timer?
+    /// What the region was last moved onto, so a tick that finds nothing new does nothing.
+    private var followed: CGRect?
+
+    /// Runs only while following, so an app sitting in the menu bar with the toggle off
+    /// costs nothing. Started and stopped from `render()` like every other visible effect.
+    ///
+    /// ponytail: polling, because macOS has no per-window focus notification outside the
+    /// Accessibility API, and asking for that grant to move a rectangle is a poor trade.
+    /// An `AXObserver` on `kAXFocusedWindowChangedNotification` is the upgrade if 3/s ever
+    /// shows up in a profile.
+    private func setFollowing(_ on: Bool) {
+        guard on != (followTimer != nil) else { return }
+        followTimer?.invalidate()
+        followTimer = nil
+        followed = nil
+        guard on else { return }
+        followTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            // Scheduled from the main run loop, so it fires there.
+            MainActor.assumeIsolated { self?.followFocus() }
+        }
+        followFocus()   // the first move is immediate, not 0.3s after the toggle
+    }
+
+    /// Moves the region onto the focused window: the front window of the front app, which
+    /// is the same thing for every ordinary window. Tracked by frame, so it follows the
+    /// window being moved or resized as well as focus changing between two of them.
+    private func followFocus() {
+        guard state.isFollowingFocus, let app = NSWorkspace.shared.frontmostApplication else { return }
+        // Our own settings window is focused: following would jump the region onto
+        // whatever is behind it, which is not what the user is looking at.
+        guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        // An ignored app leaves the region where it is, still showing whatever was last
+        // followed: switching to the meeting app itself must not put it on the call.
+        guard !config.ignoresFocus(app: app.localizedName,
+                                   bundleID: app.bundleIdentifier) else { return }
+        guard let front = ScreenWindows.list().first(where: { $0.pid == app.processIdentifier }),
+              front.frame != followed
+        else { return }
+        followed = front.frame
+        // place() rather than moveRegion(): an automatic move must not flip the app into
+        // edit mode behind the user's back.
+        regionWindow.place(front.frame)
+    }
+
+    private func setFollowFocus(_ following: Bool) {
+        state.followsFocus = following
+        Preferences.followsFocus = following
+        render()
     }
 
     private func toggleCursor() {
