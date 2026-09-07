@@ -165,8 +165,9 @@ jobs:
             end
 
             # A bare symbol, not ">= :sonoma": the string comparison format is deprecated,
-            # and `depends_on macos:` already parses with a >= comparator, so this is the
-            # same requirement.
+            # and this stanza already parses with a >= comparator, so it is the same
+            # requirement. No backticks anywhere in this heredoc: it is unquoted, so the
+            # shell would run what is between them.
             depends_on macos: :sonoma
 
             app "VirtualDisplay.app"
