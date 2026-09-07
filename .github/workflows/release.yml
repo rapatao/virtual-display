@@ -164,7 +164,10 @@ jobs:
               skip "Auto-generated on release."
             end
 
-            depends_on macos: ">= :sonoma"
+            # A bare symbol, not ">= :sonoma": the string comparison format is deprecated,
+            # and `depends_on macos:` already parses with a >= comparator, so this is the
+            # same requirement.
+            depends_on macos: :sonoma
 
             app "VirtualDisplay.app"
 
