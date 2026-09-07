@@ -2,6 +2,16 @@ import AppKit
 import CoreMedia
 import ScreenCaptureKit
 
+/// The pixel canvas everything is produced at: the live mirror, screenshots and
+/// recordings. Set from `config.json` at launch and whenever that file changes.
+public enum OutputCanvas {
+    /// 1080p, which 960x540 points on a Retina display mirrors into 1:1.
+    public static let standard = CGSize(width: 1920, height: 1080)
+    public static var size: CGSize = standard
+    /// The shape the region is held to while the aspect lock is on.
+    public static var aspect: CGSize { size }
+}
+
 /// Owns the ScreenCaptureKit stream and nothing else.
 ///
 /// It never reaches into windows: `Source` supplies the rectangle to capture and the
@@ -14,16 +24,11 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
     public struct Source {
         public var regionFrame: () -> CGRect
         public var regionScreen: () -> NSScreen?
-        /// Our own windows. Excluding them is what stops the mirror from recursing into
-        /// itself when the output window overlaps the region.
-        public var excludedWindowNumbers: () -> [Int]
 
         public init(regionFrame: @escaping () -> CGRect,
-                    regionScreen: @escaping () -> NSScreen?,
-                    excludedWindowNumbers: @escaping () -> [Int]) {
+                    regionScreen: @escaping () -> NSScreen?) {
             self.regionFrame = regionFrame
             self.regionScreen = regionScreen
-            self.excludedWindowNumbers = excludedWindowNumbers
         }
     }
 
@@ -67,8 +72,8 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
         guard stream == nil else { return }
 
         let filter = try await makeFilter()
-        config.width = 1920
-        config.height = 1080
+        config.width = Int(OutputCanvas.size.width)
+        config.height = Int(OutputCanvas.size.height)
         config.scalesToFit = true
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
@@ -83,12 +88,14 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
         stream = s
     }
 
-    public func stop() {
+    /// `blanking: false` leaves the last frame in the output window instead of clearing
+    /// it, which is what a pause set to freeze shows.
+    public func stop(blanking: Bool = true) {
         guard let old = stream else { return }
         stream = nil
         Task {
             try? await old.stopCapture()
-            self.sink.blank()   // leaves the window black rather than frozen
+            if blanking { self.sink.blank() }
         }
     }
 
@@ -110,6 +117,14 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
         }
     }
 
+    /// The output canvas changed. A stopped stream reads the new size on its next `start`.
+    public func canvasChanged() {
+        guard stream != nil else { return }
+        config.width = Int(OutputCanvas.size.width)
+        config.height = Int(OutputCanvas.size.height)
+        pushConfiguration()
+    }
+
     private func pushConfiguration() {
         guard let stream else { return }
         Task { try? await stream.updateConfiguration(config) }
@@ -127,9 +142,13 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
         guard let target else { throw CaptureError.noDisplay }
         display = target
 
-        let mine = Set(source.excludedWindowNumbers().map { CGWindowID($0) })
-        return SCContentFilter(display: target,
-                               excludingWindows: content.windows.filter { mine.contains($0.windowID) })
+        // Every window this app owns is excluded: the region frame and the output window,
+        // which would recurse the mirror into itself, and the alerts, settings window and
+        // shortcut HUD that can sit over the region.
+        let mine = content.applications.filter {
+            $0.processID == ProcessInfo.processInfo.processIdentifier
+        }
+        return SCContentFilter(display: target, excludingApplications: mine, exceptingWindows: [])
     }
 
     private func currentSourceRect() -> CGRect {

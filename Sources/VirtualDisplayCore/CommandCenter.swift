@@ -46,6 +46,14 @@ public final class CommandCenter {
             return value
         }
 
+        /// A switch, which a URL may carry bare: `?clipboard` and `?clipboard=true` both
+        /// mean yes, and an absent key means no rather than an error.
+        public func flag(_ key: String) throws -> Bool {
+            guard let value = raw[key] else { return false }
+            if value.isEmpty { return true }
+            return try bool(key)
+        }
+
         /// Accepts what each caller naturally produces: `?on=true` from a URL, `true` from
         /// Lua, `1` from a shell script.
         public func bool(_ key: String) throws -> Bool {

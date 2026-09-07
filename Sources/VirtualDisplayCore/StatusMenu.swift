@@ -35,10 +35,12 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         public var togglePause: () -> Void = {}
         public var toggleEditRegion: () -> Void = {}
         public var toggleFollowFocus: () -> Void = {}
+        public var toggleAspectLock: () -> Void = {}
         public var applySize: (RegionSize) -> Void = { _ in }
         public var applySpot: (RegionSpot) -> Void = { _ in }
         public var snapToWindowBelow: () -> Void = {}
         public var takeScreenshot: () -> Void = {}
+        public var copyScreenshot: () -> Void = {}
         public var toggleRecording: () -> Void = {}
         public var toggleCursor: () -> Void = {}
         public var toggleLoginItem: () -> Void = {}
@@ -60,8 +62,12 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     private let pauseItem: ActionMenuItem
     private let editItem: ActionMenuItem
     private let followItem: ActionMenuItem
+    private let aspectItem: ActionMenuItem
     private let presetItem = NSMenuItem(title: "Region Presets", action: nil, keyEquivalent: "")
+    /// Shown only when the region straddles two displays, which capture cannot do.
+    private let spanItem = NSMenuItem(title: "Region spans two displays", action: nil, keyEquivalent: "")
     private let screenshotItem: ActionMenuItem
+    private let copyScreenshotItem: ActionMenuItem
     private let recordItem: ActionMenuItem
     private let cursorItem: ActionMenuItem
     private let loginItem: ActionMenuItem
@@ -82,9 +88,11 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
                                    handler: actions.togglePause)
         editItem = ActionMenuItem("Edit Region", handler: actions.toggleEditRegion)
         followItem = ActionMenuItem("Follow Focused Window", handler: actions.toggleFollowFocus)
+        aspectItem = ActionMenuItem("Lock Region Aspect", handler: actions.toggleAspectLock)
         screenshotItem = ActionMenuItem("Take Screenshot", key: "s",
                                         modifiers: [.control, .option, .command],
                                         handler: actions.takeScreenshot)
+        copyScreenshotItem = ActionMenuItem("Copy Screenshot", handler: actions.copyScreenshot)
         recordItem = ActionMenuItem("Start Recording", key: "r",
                                     modifiers: [.control, .option, .command],
                                     handler: actions.toggleRecording)
@@ -98,10 +106,11 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false   // otherwise AppKit overrides our isEnabled flags
 
-        [accessItem, mirroringItem, pauseItem, editItem, followItem].forEach(menu.addItem)
+        [accessItem, mirroringItem, pauseItem, editItem, followItem, aspectItem].forEach(menu.addItem)
         menu.addItem(presetItem)
+        menu.addItem(spanItem)
         menu.addItem(.separator())
-        [screenshotItem, recordItem].forEach(menu.addItem)
+        [screenshotItem, copyScreenshotItem, recordItem].forEach(menu.addItem)
         menu.addItem(.separator())
         [cursorItem, loginItem].forEach(menu.addItem)
         menu.addItem(.separator())
@@ -119,6 +128,10 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
                                 keyEquivalent: "q"))
         statusItem.menu = menu
         errorItem.isHidden = true
+        spanItem.isEnabled = false
+        spanItem.isHidden = true
+        spanItem.image = NSImage(systemSymbolName: "exclamationmark.triangle",
+                                 accessibilityDescription: nil)
         setPresets(presets)
     }
 
@@ -210,9 +223,13 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         editItem.state = state.isEditingRegion ? .on : .off
         followItem.isEnabled = true
         followItem.state = state.followsFocus ? .on : .off
+        aspectItem.isEnabled = true
+        aspectItem.state = state.locksRegionAspect ? .on : .off
         presetItem.isEnabled = true
+        spanItem.isHidden = !state.regionSpansDisplays
         // Both grab the output window, so both need it on screen.
         screenshotItem.isEnabled = state.canCaptureOutput
+        copyScreenshotItem.isEnabled = state.canCaptureOutput
         recordItem.isEnabled = state.canCaptureOutput || state.isRecording
         recordItem.title = state.isRecording ? "Stop Recording" : "Start Recording"
         pluginsItem.isEnabled = true

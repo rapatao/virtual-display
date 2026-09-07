@@ -1,0 +1,30 @@
+name: CI
+
+# The release workflow runs the tests too, but only once a tag exists, which is after
+# the mistake has a version number. This runs them on the way in.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Build
+        run: swift build
+
+      # Headless: no window server, so anything needing one has to stay out of the tests.
+      - name: Test
+        run: swift test

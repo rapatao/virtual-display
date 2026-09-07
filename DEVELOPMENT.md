@@ -107,6 +107,7 @@ unit tested; an executable target cannot be imported by a test target.
 | `Sources/VirtualDisplayCore/KeySpec.swift` | `"ctrl-opt-cmd-r"` into a Carbon key code |
 | `Sources/VirtualDisplayCore/LuaRuntime.swift` | The plugin interpreter and the `vd` API |
 | `Sources/VirtualDisplayCore/Overlay.swift` | Text, images and rectangles drawn over the shared window |
+| `Sources/VirtualDisplayCore/HUD.swift` | The one-second confirmation a global shortcut leaves on screen |
 | `Sources/VirtualDisplayCore/Fetch.swift` | The one outbound HTTP path, for `vd.fetch` |
 | `Sources/VirtualDisplayCore/Recording.swift` | Screenshots and `.mov` recording of the shared window |
 | `Sources/VirtualDisplayCore/SettingsWindow.swift` | The settings window; writes `config.json` |
@@ -126,15 +127,24 @@ what keeps the enable, pause, permission-revoke and failure paths from disagreei
 
 ScreenCaptureKit does the cropping. `SCStreamConfiguration.sourceRect` is set to the
 region frame converted into display coordinates, and `SCContentFilter(display:
-excludingWindows:)` removes the app's own two windows from the capture. Moving or
+excludingApplications:exceptingWindows:)` removes every window this app owns from the
+capture: the region frame and output window, which would otherwise recurse the mirror
+into itself, along with alerts, the settings window and the shortcut HUD. Moving or
 resizing the region calls `SCStream.updateConfiguration`; dragging it to another display
 rebuilds the filter via `SCStream.updateContentFilter`. Frames arrive as
 `CMSampleBuffer`s and go to a `VideoSink`, which hops them to the main queue and into an
 `AVSampleBufferDisplayLayer`.
 
 `CaptureController` never reaches into a window: a `Source` struct supplies the rectangle
-and the window numbers to exclude. Choosing them differently (an `SCContentSharingPicker`,
-a second region) touches only the caller.
+and the screen. Choosing them differently (an `SCContentSharingPicker`, a second region)
+touches only the caller.
+
+The canvas everything is rendered at - the live mirror, screenshots and recordings - is
+`OutputCanvas.size`, set from `config.json` at launch and whenever the file changes.
+
+Recordings are a second `SCStream` over the output window. Audio, when it is turned on,
+comes from `AVCaptureSession` and the microphone, not from ScreenCaptureKit: SCK's audio
+follows the content filter, and the filter is this app's own silent window.
 
 ## Adding things
 
@@ -145,7 +155,9 @@ a second region) touches only the caller.
 - **A visibility rule**: a derived property on `AppState`, used by `render()`, covered by
   `AppStateTests`.
 - **A global shortcut**: one `HotKeyCenter.shared.register(keyCode:) { ... }` call.
-- **A setting**: a case in `Preferences.Key` and a typed property beside it.
+- **A setting**: a case in `Preferences.Key` and a typed property beside it, for anything
+  the menu toggles; a field on `Config` for anything only the settings window and the file
+  set.
 - **A plugin event**: one `lua.emit("name", [...])` call where the thing happens.
 
 Anything a user might want to vary belongs in `config.json` or the `vd` API instead, so it

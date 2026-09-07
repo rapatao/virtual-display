@@ -42,6 +42,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHumanReadableCopyright</key><string>Copyright (C) 2026 Luiz Henrique Rapatao. GNU GPL v3 or later.</string>
     <key>LSUIElement</key><true/>
+    <!-- Only asked for the first time a recording starts with audio turned on. Without
+         this key macOS kills the process instead of showing a prompt. -->
+    <key>NSMicrophoneUsageDescription</key><string>Virtual Display records your microphone into a screen recording, when you turn recording audio on.</string>
     <key>NSHighResolutionCapable</key><true/>
     <!-- The automation channel: open 'virtualdisplay://toggle-mirroring' from anything. -->
     <key>CFBundleURLTypes</key>

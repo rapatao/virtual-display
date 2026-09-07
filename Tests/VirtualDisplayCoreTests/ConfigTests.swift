@@ -75,6 +75,44 @@ final class ConfigTests: XCTestCase {
         XCTAssertFalse(Config().ignoresFocus(app: "Slack", bundleID: nil))
     }
 
+    /// A preset carrying a position moves the region as well as resizing it, and half a
+    /// position must not move it somewhere nobody asked for.
+    func testPresetPositionNeedsBothCoordinates() throws {
+        let url = try write("""
+        { "presets": [
+            { "name": "Demo spot", "width": 960, "height": 540, "x": 100, "y": 200 },
+            { "name": "Half typed", "width": 960, "height": 540, "x": 100 },
+            { "name": "Size only", "width": 960, "height": 540 }
+        ] }
+        """)
+        let sizes = Config.load(from: url).regionSizes
+        XCTAssertEqual(sizes[0].origin, CGPoint(x: 100, y: 200))
+        XCTAssertNil(sizes[1].origin)
+        XCTAssertNil(sizes[2].origin)
+    }
+
+    /// The canvas reaches an encoder that refuses zero, absurd, and odd dimensions, and
+    /// the moment it finds out is the moment someone presses record.
+    func testOutputCanvasIsClampedToSomethingEncodable() throws {
+        XCTAssertEqual(Config().canvasSize, OutputCanvas.standard)
+
+        let url = try write("""
+        { "output": { "width": 2560, "height": 1440 } }
+        """)
+        XCTAssertEqual(Config.load(from: url).canvasSize, CGSize(width: 2560, height: 1440))
+
+        let silly = try write("""
+        { "output": { "width": 0, "height": 99999 } }
+        """)
+        XCTAssertEqual(Config.load(from: silly).canvasSize, CGSize(width: 320, height: 7680))
+
+        let odd = try write("""
+        { "output": { "width": 1281, "height": 721 } }
+        """)
+        // H.264 will not take odd dimensions.
+        XCTAssertEqual(Config.load(from: odd).canvasSize, CGSize(width: 1280, height: 720))
+    }
+
     func testMissingFileIsTheNormalCase() {
         let missing = URL(fileURLWithPath: "/nonexistent/virtual-display/config.json")
         XCTAssertEqual(Config.load(from: missing), Config())

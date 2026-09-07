@@ -23,6 +23,8 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
 
     private let regionWindow = RegionWindow()
     private let outputWindow = OutputWindow()
+    /// Feedback for the global shortcuts, which fire with another app focused.
+    private lazy var hud = HUDWindow()
     private var capture: CaptureController!
     private var menu: StatusMenu!
 
@@ -32,10 +34,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         capture = CaptureController(
             source: CaptureController.Source(
                 regionFrame: { [regionWindow] in regionWindow.frame },
-                regionScreen: { [regionWindow] in regionWindow.screen },
-                excludedWindowNumbers: { [regionWindow, outputWindow] in
-                    [regionWindow.windowNumber, outputWindow.windowNumber]
-                }),
+                regionScreen: { [regionWindow] in regionWindow.screen }),
             sink: outputWindow.sink)
 
         capture.onFailure = { [weak self] error in self?.captureFailed(error) }
@@ -49,6 +48,12 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         regionWindow.onFrameChanged = { [weak self] in
             guard let self else { return }
             capture.regionChanged()
+            // This fires on every pixel of a drag, so it renders only on a change.
+            let spans = regionSpansDisplays()
+            if spans != state.regionSpansDisplays {
+                state.regionSpansDisplays = spans
+                render()
+            }
             let f = regionWindow.frame
             lua.emit("region_moved", ["x": f.minX, "y": f.minY, "w": f.width, "h": f.height])
         }
@@ -65,15 +70,20 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             Preferences.fallbacks.showsCursor = defaults.showsCursor ?? true
             Preferences.fallbacks.isEditingRegion = defaults.editRegion ?? true
             Preferences.fallbacks.followsFocus = defaults.followFocus ?? false
+            Preferences.fallbacks.locksAspect = defaults.lockAspect ?? false
         }
         presets = RegionSize.presets + config.regionSizes
         CaptureFiles.screenshotFolder = config.captures?.screenshots
         CaptureFiles.recordingFolder = config.captures?.recordings
+        OutputCanvas.size = config.canvasSize
+        outputWindow.canvasChanged()
 
         state.hasScreenRecordingAccess = ScreenRecordingPermission.isGranted
         state.isEditingRegion = Preferences.isEditingRegion
         state.followsFocus = Preferences.followsFocus
         state.showsCursor = Preferences.showsCursor
+        state.locksRegionAspect = Preferences.locksAspect
+        state.regionSpansDisplays = regionSpansDisplays()
         state.isLoginItemEnabled = LoginItem.isEnabled
         state.arePluginsEnabled = Preferences.pluginsEnabled
         capture.showsCursor = state.showsCursor
@@ -96,6 +106,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         actions.togglePause = { [weak self] in self?.run("toggle-pause") }
         actions.toggleEditRegion = { [weak self] in self?.run("toggle-edit-region") }
         actions.toggleFollowFocus = { [weak self] in self?.run("toggle-follow-focus") }
+        actions.toggleAspectLock = { [weak self] in self?.run("toggle-aspect-lock") }
         actions.applySize = { [weak self] preset in
             self?.run("set-size", ["name": preset.name])
         }
@@ -104,6 +115,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         actions.snapToWindowBelow = { [weak self] in self?.run("snap-to-window-below") }
         actions.takeScreenshot = { [weak self] in self?.run("screenshot") }
+        actions.copyScreenshot = { [weak self] in self?.run("screenshot", ["clipboard": "true"]) }
         actions.toggleRecording = { [weak self] in self?.run("toggle-recording") }
         actions.toggleCursor = { [weak self] in self?.run("toggle-cursor") }
         actions.toggleLoginItem = { [weak self] in self?.run("toggle-login-item") }
@@ -167,6 +179,13 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             setFollowFocus(try args.bool("on"))
             return nil
         }
+        commands.register("toggle-aspect-lock", "Hold the region to the output aspect ratio on or off",
+                          action: { [weak self] in self?.setAspectLock(!(self?.state.locksRegionAspect ?? false)) })
+        commands.register("set-aspect-lock", "Aspect lock on or off: on=true|false") { [weak self] args in
+            guard let self else { return nil }
+            setAspectLock(try args.bool("on"))
+            return nil
+        }
         commands.register("set-size", "Resize the region: name=<preset>, or width= and height=") { [weak self] args in
             guard let self else { return nil }
             let preset = try size(from: args)
@@ -209,8 +228,11 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
                           action: { [weak self] in self?.requestAccess() })
         commands.register("copy-diagnostics", "Copy the diagnostics report to the clipboard",
                           action: { [weak self] in self?.copyDiagnostics() })
-        commands.register("diagnostics", "Print the diagnostics report") { _ in
-            Diagnostics.report() + "\n\nshortcuts:\n"
+        commands.register("diagnostics", "Print the diagnostics report") { [weak self] _ in
+            // The region section is in-process only: `--doctor` runs in a second process,
+            // where this app's region window does not exist.
+            Diagnostics.report() + (self.map { "\n\n" + $0.regionReport() } ?? "")
+                + "\n\nshortcuts:\n"
                 + HotKeyCenter.shared.summary().map { "  \($0)" }.joined(separator: "\n")
         }
         commands.register("state", "Print the app state as JSON") { [weak self] _ in
@@ -231,7 +253,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             settings.refresh()
             return nil
         }
-        commands.register("settings", "Open the settings window: tab=presets|shortcuts|follow|captures|plugins|about") { [weak self] args in
+        commands.register("settings", "Open the settings window: tab=presets|output|shortcuts|follow|captures|plugins|about") { [weak self] args in
             self?.settings.show(tab: args["tab"])
             return nil
         }
@@ -258,21 +280,30 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         commands.register("clear-overlays", "Remove every overlay",
                           action: { [weak self] in self?.outputWindow.overlay.removeAll() })
 
-        commands.register("screenshot", "Save a PNG of the shared window: path= (optional)") { [weak self] args in
+        commands.register("screenshot",
+                          "Save a PNG of the shared window: path= (optional), "
+                          + "clipboard=true to copy it instead of writing a file") { [weak self] args in
             guard let self else { return nil }
-            let url = try destination(args, fallback: CaptureFiles.screenshot())
             let window = try shareableWindowNumber()
+            if try args.flag("clipboard") {
+                Task { await self.finishScreenshot(windowNumber: window, to: nil) }
+                return "clipboard"
+            }
+            let url = try destination(args, fallback: CaptureFiles.screenshot())
             // The capture itself is async; the caller gets the path it will land at, and
             // plugins get the "screenshot" event when it actually has.
             Task { await self.finishScreenshot(windowNumber: window, to: url) }
             return url.path
         }
-        commands.register("start-recording", "Record the shared window: path= (optional)") { [weak self] args in
+        commands.register("start-recording",
+                          "Record the shared window: path= (optional), mic=true|false") { [weak self] args in
             guard let self else { return nil }
             guard !state.isRecording else { return recorder.url?.path }
             let url = try destination(args, fallback: CaptureFiles.recording())
             let window = try shareableWindowNumber()
-            Task { await self.beginRecording(windowNumber: window, to: url) }
+            let microphone = args["mic"] == nil ? config.captures?.microphone ?? false
+                                                : try args.bool("mic")
+            Task { await self.beginRecording(windowNumber: window, to: url, microphone: microphone) }
             return url.path
         }
         commands.register("stop-recording", "Stop recording and finalise the file") { [weak self] _ in
@@ -303,21 +334,33 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     }
 
-    private func finishScreenshot(windowNumber: Int, to url: URL) async {
+    /// `url` is nil for a clipboard capture, which has no path to report.
+    private func finishScreenshot(windowNumber: Int, to url: URL?) async {
+        let path = url?.path ?? ""
         do {
-            _ = try await Screenshot.capture(windowNumber: windowNumber, to: url)
-            lua.emit("screenshot", ["path": url.path, "ok": true])
+            if let url {
+                _ = try await Screenshot.capture(windowNumber: windowNumber, to: url)
+                hud.show("Screenshot saved", symbol: "camera")
+            } else {
+                try await Screenshot.copyToClipboard(windowNumber: windowNumber)
+                hud.show("Screenshot copied", symbol: "clipboard")
+            }
+            lua.emit("screenshot", ["path": path, "ok": true])
         } catch {
             report(error)
-            lua.emit("screenshot", ["path": url.path, "ok": false, "error": error.localizedDescription])
+            lua.emit("screenshot", ["path": path, "ok": false, "error": error.localizedDescription])
         }
     }
 
-    private func beginRecording(windowNumber: Int, to url: URL) async {
+    private func beginRecording(windowNumber: Int, to url: URL, microphone: Bool) async {
         do {
-            try await recorder.start(windowNumber: windowNumber, to: url)
+            try await recorder.start(windowNumber: windowNumber, to: url, microphone: microphone)
             state.isRecording = true
             render()
+            // Starting is announced by the state change; a lost microphone is not.
+            if let why = recorder.microphoneFailure {
+                hud.show(why, symbol: "mic.slash")
+            }
             lua.emit("recording", ["on": true, "path": url.path])
         } catch {
             report(error)
@@ -328,9 +371,11 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         let path = recorder.url?.path ?? ""
         do {
             try await recorder.stop()
+            hud.show("Recording saved", symbol: "checkmark.circle")
             lua.emit("recording", ["on": false, "path": path])
         } catch {
             report(error)
+            hud.show(error.localizedDescription, symbol: "exclamationmark.triangle")
             lua.emit("recording", ["on": false, "path": path, "error": error.localizedDescription])
         }
         state.isRecording = false
@@ -350,9 +395,11 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         var environment = SettingsWindow.Environment()
         environment.config = { [weak self] in self?.config ?? Config() }
         environment.save = { [weak self] config in self?.applyConfig(config) }
-        environment.regionSize = { [weak self] in self?.regionWindow.frame.size ?? .zero }
+        environment.regionFrame = { [weak self] in self?.regionWindow.frame ?? .zero }
         environment.followsFocus = { [weak self] in self?.state.followsFocus ?? false }
         environment.setFollowsFocus = { [weak self] on in self?.setFollowFocus(on) }
+        environment.locksAspect = { [weak self] in self?.state.locksRegionAspect ?? false }
+        environment.setLocksAspect = { [weak self] on in self?.setAspectLock(on) }
         environment.pluginsEnabled = { [weak self] in self?.state.arePluginsEnabled ?? false }
         environment.setPluginsEnabled = { [weak self] on in self?.setPlugins(on) }
         environment.reloadPlugins = { [weak self] in self?.reloadPlugins() }
@@ -384,12 +431,25 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     /// Everything derived from the config file, without writing it back: what the settings
     /// window needs after a save, and what `reload-config` needs after a hand-edit.
     private func adopt(_ new: Config) {
+        // Turning one plugin off has to unregister what it added, which only a reload does.
+        let pluginsChanged = new.disabledPlugins != config.disabledPlugins
         config = new
 
         presets = RegionSize.presets + config.regionSizes + pluginPresets
         menu?.setPresets(presets)
         CaptureFiles.screenshotFolder = config.captures?.screenshots
         CaptureFiles.recordingFolder = config.captures?.recordings
+
+        // A canvas change reshapes the live stream, the shared window, and the region
+        // when it is locked to the canvas.
+        if config.canvasSize != OutputCanvas.size {
+            OutputCanvas.size = config.canvasSize
+            outputWindow.canvasChanged()
+            capture.canvasChanged()
+            render()
+        }
+
+        if pluginsChanged, state.arePluginsEnabled { reloadPlugins() }
 
         // Shortcuts are re-registered wholesale: rebinding one has to release the key it
         // used to hold, and Carbon has no way to edit a registration in place.
@@ -435,7 +495,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
 
     private func loadPlugins() {
         guard state.arePluginsEnabled else { return }
-        lua.load()
+        lua.load(disabled: Set(config.disabledPlugins))
         menu?.setPluginError(lua.errors.first)
     }
 
@@ -483,20 +543,32 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
 
     /// Plugins hear about state changes, not about every render: `render()` runs on every
     /// action, most of which change nothing.
+    ///
+    /// The HUD is driven from here too: what it confirms is a state change.
     private func emitStateChanges() {
         defer { lastState = state }
         guard let previous = lastState else { return }   // launch is not a change
         if previous.isMirroring != state.isMirroring {
             lua.emit("mirroring", ["on": state.isMirroring])
+            hud.show(state.isMirroring ? "Mirroring on" : "Mirroring off",
+                     symbol: state.isMirroring ? "rectangle.on.rectangle" : "rectangle.on.rectangle.slash")
         }
         if previous.isPaused != state.isPaused {
             lua.emit("pause", ["on": state.isPaused])
+            hud.show(state.isPaused ? "Share paused" : "Share resumed",
+                     symbol: state.isPaused ? "pause.fill" : "play.fill")
+        }
+        // Only the start. Stopping has an outcome, announced by `endRecording`.
+        if previous.isRecording != state.isRecording, state.isRecording {
+            hud.show("Recording", symbol: "record.circle")
         }
         if previous.isEditingRegion != state.isEditingRegion {
             lua.emit("edit_region", ["on": state.isEditingRegion])
         }
         if previous.followsFocus != state.followsFocus {
             lua.emit("follow_focus", ["on": state.followsFocus])
+            hud.show(state.followsFocus ? "Following focused window" : "Following off",
+                     symbol: "dot.viewfinder")
         }
     }
 
@@ -601,6 +673,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         menu?.render(state)
 
         regionWindow.isEditing = state.regionAcceptsMouse
+        regionWindow.lockedAspect = state.locksRegionAspect ? OutputCanvas.aspect : nil
         setVisible(regionWindow, state.showsRegionWindow)
         // orderFront, never makeKeyAndOrderFront: the output window must not steal focus
         // from whatever you are about to drag into the region.
@@ -615,7 +688,8 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             guard !capture.isRunning else { return }
             Task { await startCapture() }
         } else {
-            capture.stop()
+            // A pause set to freeze keeps the last frame up; every other stop blanks.
+            capture.stop(blanking: !(state.isPaused && config.freezeOnPause == true))
         }
     }
 
@@ -703,6 +777,35 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     private func moveRegion(_ move: (RegionWindow) -> Void) {
         if !state.showsRegionWindow { setEditing(true) }
         move(regionWindow)
+    }
+
+    // MARK: The region and its display
+
+    /// Capture is built from one `SCDisplay`. A region lying across two of them has the
+    /// half on the second screen filled with whatever is at that rectangle on the first.
+    private func regionSpansDisplays() -> Bool {
+        Geometry.spansDisplays(regionWindow.frame, screens: NSScreen.screens.map(\.frame))
+    }
+
+    /// The part of the diagnostics report that needs the running app's own windows.
+    private func regionReport() -> String {
+        let f = regionWindow.frame
+        var out = ["region:"]
+        out.append("  frame: \(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))")
+        out.append("  on screen: \(regionWindow.screen?.frame.debugDescription ?? "none")")
+        out.append("  output canvas: \(Int(OutputCanvas.size.width))x\(Int(OutputCanvas.size.height))")
+        out.append("  aspect lock: \(state.locksRegionAspect)")
+        if state.regionSpansDisplays {
+            out.append("  WARNING: the region spans more than one display. Only the display"
+                       + " it mostly covers is captured; move or shrink it.")
+        }
+        return out.joined(separator: "\n")
+    }
+
+    private func setAspectLock(_ locked: Bool) {
+        state.locksRegionAspect = locked
+        Preferences.locksAspect = locked
+        render()
     }
 
     // MARK: Follow focus

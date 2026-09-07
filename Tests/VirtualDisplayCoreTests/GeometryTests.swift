@@ -69,6 +69,58 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(resized, CGRect(x: 10, y: 300, width: 200, height: 100))
     }
 
+    // MARK: Aspect lock
+
+    func testFittingOnlyShrinksAndKeepsTheTopEdge() {
+        let canvas = CGSize(width: 16, height: 9)
+        // Too tall: the height goes, and the frame grows downward from where it was.
+        let tall = CGRect(x: 10, y: 100, width: 1600, height: 1200)
+        let fitted = Geometry.fit(tall, aspect: canvas)
+        XCTAssertEqual(fitted, CGRect(x: 10, y: 400, width: 1600, height: 900))
+        XCTAssertEqual(fitted.maxY, tall.maxY)
+
+        // Too wide: the width goes instead. Either way nothing gets bigger, which is what
+        // keeps a fitted frame inside the screen a clamp just put it on.
+        let wide = CGRect(x: 0, y: 0, width: 2000, height: 900)
+        XCTAssertEqual(Geometry.fit(wide, aspect: canvas), CGRect(x: 0, y: 0, width: 1600, height: 900))
+    }
+
+    func testFittingAFrameAlreadyOnRatioChangesNothing() {
+        let already = CGRect(x: 5, y: 5, width: 1920, height: 1080)
+        XCTAssertEqual(Geometry.fit(already, aspect: CGSize(width: 16, height: 9)), already)
+        // A canvas that is not 16:9 is still just a ratio.
+        XCTAssertEqual(Geometry.fit(CGRect(x: 0, y: 0, width: 400, height: 400),
+                                    aspect: CGSize(width: 1, height: 2)),
+                       CGRect(x: 0, y: 0, width: 200, height: 400))
+    }
+
+    func testFittingSurvivesDegenerateInput() {
+        let empty = CGRect(x: 0, y: 0, width: 0, height: 0)
+        XCTAssertEqual(Geometry.fit(empty, aspect: CGSize(width: 16, height: 9)), empty)
+        XCTAssertEqual(Geometry.fit(visible, aspect: .zero), visible)
+    }
+
+    // MARK: Two displays
+
+    /// Capture is built from a single display, so a region across two of them silently
+    /// fills the other half with whatever is at that rectangle on the first.
+    func testSpansDisplaysOnlyWhenItActuallyOverlapsTwo() {
+        let left = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let right = CGRect(x: 1920, y: 0, width: 1920, height: 1080)
+        let screens = [left, right]
+
+        XCTAssertFalse(Geometry.spansDisplays(CGRect(x: 100, y: 100, width: 960, height: 540),
+                                              screens: screens))
+        XCTAssertTrue(Geometry.spansDisplays(CGRect(x: 1600, y: 100, width: 960, height: 540),
+                                             screens: screens))
+        // Flush against the boundary is not overlapping it.
+        XCTAssertFalse(Geometry.spansDisplays(CGRect(x: 960, y: 0, width: 960, height: 540),
+                                              screens: screens))
+        // One screen cannot be spanned.
+        XCTAssertFalse(Geometry.spansDisplays(CGRect(x: 1600, y: 100, width: 960, height: 540),
+                                              screens: [left]))
+    }
+
     func testEveryAnchorLandsInsideTheVisibleArea() {
         let size = CGSize(width: 400, height: 225)
         for spot in RegionSpot.allCases {

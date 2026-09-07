@@ -79,7 +79,9 @@ presence; turn mirroring off and it goes back to tray-only.
 | **Pause** | Blanks the share without closing the output window, so the meeting keeps it selected. `Ctrl Opt Cmd P`. |
 | **Edit Region** | On: the frame is red, draggable and resizable. Off: green and click-through. |
 | **Follow Focused Window** | The region jumps to the front window of whatever app you switch to, see below. |
+| **Lock Region Aspect** | Holds the region to the shape of the [output canvas](#output-size), so nothing is letterboxed. |
 | **Region Presets** | Size and position presets, see below. |
+| **Region spans two displays** | A warning, not a command. Only visible when the region lies across two screens, which capture cannot do. |
 | **Show Cursor in Share** | Whether your pointer appears in what you share. |
 | **Launch at Login** | Registers the app with macOS via `SMAppService`. |
 | **Copy Diagnostics** | Copies a report on screen state to the clipboard and displays it. Same output as `--doctor`. |
@@ -108,11 +110,18 @@ menu item either way. See [Customising](#customising-without-a-new-release).
 | Menu item | Produces |
 | --- | --- |
 | **Take Screenshot** | `~/Pictures/Virtual Display/Screenshot 2026-09-03 at 22.15.00.png` |
+| **Copy Screenshot** | The same picture on the clipboard, and no file |
 | **Start Recording** / **Stop Recording** | `~/Movies/Virtual Display/Recording 2026-09-03 at 22.15.00.mov` |
 
 Both capture the output window, not the region, so what you get is exactly what the meeting
-sees, overlays included. Stills are PNG at 1920x1080; recordings are H.264 in a QuickTime
-container, 1920x1080 at 30fps, **video only, no audio**.
+sees, overlays included. Stills are PNG at the [output size](#output-size); recordings are
+H.264 in a QuickTime container, at that size and 30fps.
+
+Recordings are silent unless **Settings... > Captures > Record microphone audio** is on,
+which adds your voice as an AAC track. macOS asks for microphone access the first time one
+starts. System audio is not recorded: ScreenCaptureKit ties audio to the thing being
+captured, and that is this app's own silent window. If the microphone cannot be opened the
+picture is still recorded, and the HUD says the sound is missing.
 
 Both need the output window on screen, so both are greyed out unless mirroring is on. While
 paused they still work, on the frozen picture. The menu bar icon becomes a record dot while
@@ -122,7 +131,8 @@ From a script or a plugin, with an optional destination:
 
 ```sh
 open 'virtualdisplay://screenshot'
-open 'virtualdisplay://start-recording?path=~/Desktop/demo.mov'
+open 'virtualdisplay://screenshot?clipboard=true'
+open 'virtualdisplay://start-recording?path=~/Desktop/demo.mov&mic=true'
 open 'virtualdisplay://stop-recording'
 ```
 
@@ -162,6 +172,20 @@ region's centre, which is the fiddly part of setup if done by hand.
 Presets are clamped to the screen, so the frame can never be parked off-screen or made
 larger than the display it sits on. Choosing a preset while the frame is hidden turns
 **Edit Region** on so you can see where it landed.
+
+Your own presets can carry a **position** as well as a size, which puts the region back
+exactly where it was: **Settings... > Presets > Add Current Region** captures both, and a
+row's X and Y can be typed or cleared by hand. A preset with neither resizes the region
+where it stands, which is what the built-in sizes do.
+
+### Aspect lock
+
+Output is one fixed shape, so a region of any other shape is letterboxed into it: black
+bars on two sides of everything you share. **Lock Region Aspect** holds the region to that
+shape - 16:9 unless you changed the [output size](#output-size) - however you drag it, and
+fits presets, snapping and follow mode to it as well. It is remembered across launches, and
+is off by default because a region that resists being dragged is surprising if you did not
+ask for it.
 
 ### Follow Focused Window
 
@@ -221,11 +245,12 @@ none of them survives only until the next upgrade, and none of them needs a rebu
 
 | Section | Does |
 | --- | --- |
-| Presets | Type a name and a size, or **Add Current Region Size** to capture the region as it is now. Rows are editable in place |
+| Presets | Type a name and a size, or **Add Current Size** / **Add Current Region** to capture the region as it is now, with or without its position. Rows are editable in place |
+| Output | The [output size](#output-size), the [aspect lock](#aspect-lock), and whether pause freezes the last frame or blanks it |
 | Shortcuts | Click a shortcut, press the keys. Escape cancels, Delete clears. Recording one for an action replaces its default, and the menu updates to match |
 | Follow | The Follow Focused Window switch, and the list of apps it leaves alone. **Add App** picks from what is running, so the name is spelled the way the matcher expects; each row has its own remove button |
-| Captures | Where screenshots and recordings are written, or **Default** for the system folders |
-| Plugins | The plugin switch, the folder, a reload button, and any load errors |
+| Captures | Where screenshots and recordings are written, or **Default** for the system folders, and whether recordings carry microphone audio |
+| Plugins | The plugin switch, the folder, a reload button, every `.lua` file in it with its own switch, and any load errors |
 | About | Version, copyright, links to the repository and the bundled licence, and **Check for Updates** |
 
 While the window is open the app takes a Dock icon, so it can be found again after it goes
@@ -245,28 +270,53 @@ version, only when you press it: there is no background check and nothing is sen
 release offers a button to open its page; installing it is still `brew upgrade --cask
 virtual-display` or a download.
 
+### Output size
+
+**Settings... > Output** holds the canvas everything is produced at: the live mirror,
+screenshots and recordings. 1920x1080 by default, with 1280x720, 2560x1440 and 3840x2160
+offered beside it, and any even size from 320 to 7680 accepted in `config.json`.
+
+A region larger than the canvas is downsampled, which is what costs a shared terminal its
+legibility; a larger canvas keeps that detail and costs encoding work at both ends. It
+takes effect immediately, without a relaunch, and the shared window reshapes itself to
+match.
+
+The same tab holds **Lock the region to 16:9** ([aspect lock](#aspect-lock)) and **Freeze
+the last frame when paused**. Pause blanks the share by default, which is unmistakably a
+pause; frozen, the meeting keeps seeing the last frame instead.
+
 ### config.json
 
 ```json
 {
-  "presets": [{ "name": "Notes strip", "width": 700, "height": 1000 }],
+  "presets": [
+    { "name": "Notes strip", "width": 700, "height": 1000 },
+    { "name": "Demo spot", "width": 1280, "height": 720, "x": 240, "y": 300 }
+  ],
   "hotkeys": {
     "ctrl-opt-cmd-r": "snap-to-window-below",
     "ctrl-opt-cmd-1": "set-size?width=1280&height=720"
   },
-  "defaults": { "showsCursor": false },
-  "captures": { "recordings": "~/Desktop" },
-  "followIgnores": ["Slack", "com.1password.1password"]
+  "defaults": { "showsCursor": false, "lockAspect": true },
+  "output": { "width": 2560, "height": 1440 },
+  "freezeOnPause": true,
+  "captures": { "recordings": "~/Desktop", "microphone": true },
+  "followIgnores": ["Slack", "com.1password.1password"],
+  "disabledPlugins": ["20-ticker.lua"]
 }
 ```
 
-Presets are added to the built-in ones, not replacing them. Hotkey values are commands
-from the table below, with arguments in URL query form. Shortcut specs are modifiers plus
-one key: `cmd`, `ctrl`, `opt` (or `alt`), `shift`, then a letter, digit, `f1`-`f20`, an
-arrow, `space`, `return`, `tab`, `escape`, `delete`, `home`, `end`, `pageup`, `pagedown`,
-or a punctuation key. `defaults` only applies to settings you have never toggled in the
-menu; once you toggle one, your choice wins. `followIgnores` is the list of apps
-[Follow Focused Window](#follow-focused-window) leaves alone.
+Presets are added to the built-in ones, not replacing them; `x` and `y` together give one
+a position, and either alone is ignored. Hotkey values are commands from the table below,
+with arguments in URL query form. Shortcut specs are modifiers plus one key: `cmd`,
+`ctrl`, `opt` (or `alt`), `shift`, then a letter, digit, `f1`-`f20`, an arrow, `space`,
+`return`, `tab`, `escape`, `delete`, `home`, `end`, `pageup`, `pagedown`, or a punctuation
+key. `defaults` only applies to settings you have never toggled in the menu; once you
+toggle one, your choice wins. `output` is the [output size](#output-size), clamped to even
+numbers between 320 and 7680. `freezeOnPause` leaves the last frame up instead of blanking.
+`captures.microphone` records your voice into a `.mov`. `followIgnores` is the list of apps
+[Follow Focused Window](#follow-focused-window) leaves alone, and `disabledPlugins` the
+[plugin files](#lua-plugins) left unloaded.
 
 Every key is optional; the ones you leave out keep their defaults.
 
@@ -287,13 +337,14 @@ open 'virtualdisplay://set-region?x=100&y=100&w=960&h=540'
 | `toggle-pause`, `set-pause` | `on=` |
 | `toggle-edit-region`, `set-edit-region` | `on=` |
 | `toggle-follow-focus`, `set-follow-focus` | `on=` |
+| `toggle-aspect-lock`, `set-aspect-lock` | `on=` |
 | `set-size` | `name=<preset prefix>`, or `width=` and `height=` |
 | `set-spot` | `name=center\|top-left\|top-right\|bottom-left\|bottom-right` |
 | `set-region` | `x= y= w= h=` in screen points |
 | `region` | prints the region frame as JSON |
 | `snap-to-window-below` | |
-| `screenshot` | `path=` optional; returns where it will land |
-| `start-recording`, `stop-recording`, `toggle-recording` | `path=` optional |
+| `screenshot` | `path=` optional, or `clipboard=true`; returns where it will land |
+| `start-recording`, `stop-recording`, `toggle-recording` | `path=` optional, `mic=true\|false` overrides the setting |
 | `toggle-cursor`, `toggle-login-item`, `request-access` | |
 | `copy-diagnostics`, `diagnostics` | |
 | `state` | prints `AppState` as JSON |
@@ -313,6 +364,19 @@ one table, so a command can never do one thing from the menu and another from a 
 `~/.config/virtual-display/plugins/` runs at launch, in filename order, against one shared
 Lua 5.4 interpreter. **Reload Plugins** re-reads them without restarting the app; turning
 the toggle off again unregisters everything they added.
+
+**Settings... > Plugins** lists the files in that folder, in the order they load, each with
+its own switch. Turning one off leaves it on disk and stops it running, and leaves the
+others alone; a file that failed to load carries a warning triangle with the reason behind
+it. The switches are `disabledPlugins` in `config.json`, by file name:
+
+```json
+{ "disabledPlugins": ["20-ticker.lua"] }
+```
+
+Flipping one reloads the rest, so the commands, menu items, shortcuts and overlays a
+disabled plugin registered go away with it. The list is read when the settings window
+opens and again on **Reload**, so a file dropped into the folder appears after a reload.
 
 Files that are not owned by you, or that are group- or world-writable, are skipped and
 reported. A plugin runs with this app's Screen Recording grant, so a file that some other
@@ -426,12 +490,14 @@ defaults write com.rapatao.virtual-display enablePlugins -bool NO
 
 ## Behaviour notes
 
-**The region is free-form.** Output is always a 1920x1080 canvas. When the region's aspect
-ratio is not 16:9 the image is letterboxed inside it rather than stretched.
+**The region is free-form.** Output is a 1920x1080 canvas unless you changed the
+[output size](#output-size). When the region's aspect ratio does not match, the image is
+letterboxed inside it rather than stretched; [aspect lock](#aspect-lock) stops that
+happening at all.
 
-**The region frame and the output window are excluded from capture.** The output window
-can sit on top of the region without producing an infinite mirror tunnel, and the red or
-green frame never appears in what you share.
+**Every window this app owns is excluded from capture.** The output window can sit on top
+of the region without producing an infinite mirror tunnel, and neither the red or green
+frame, an alert, the settings window nor the shortcut HUD ever appears in what you share.
 
 **The output window is not optional and is managed for you.** It opens when mirroring is
 enabled and closes when mirroring is disabled, because it is the only thing a meeting can
@@ -447,7 +513,8 @@ black.
 **Turning mirroring off ends your share.** The window it was offering goes away, so the
 meeting stops sharing rather than showing a frozen frame. Re-enable and pick the window
 again to resume. To hide something mid-call, use **Pause** instead: capture stops and the
-share goes black, but the window stays on screen and stays selected.
+share goes black - or holds the last frame, with **Freeze the last frame when paused** on -
+but the window stays on screen and stays selected.
 
 **Never minimise the output window.** A minimised window reports `onscreen=false` and is
 dropped from every share picker, which looks exactly like the app being broken. It has no
@@ -455,6 +522,11 @@ minimise button for that reason.
 
 **The region frame is independent of mirroring.** It is visible whenever you are editing
 it or mirroring is live, so the region can be positioned before a call starts.
+
+**A shortcut leaves a HUD on screen.** Global shortcuts fire while another app is focused,
+where the menu bar icon is the only other feedback. Mirroring, pause, recording, following
+and a screenshot each put a line of text low on the screen for a second. It is excluded
+from capture like every other window of this app, so the meeting never sees it.
 
 **Recurring permission prompt.** macOS periodically shows "requesting to bypass the system
 private window picker and directly access your screen and audio". This app builds its own
@@ -474,6 +546,7 @@ Stored in `UserDefaults` under `com.rapatao.virtual-display`:
 | `editRegion` | Edit Region toggle |
 | `followFocus` | Follow Focused Window toggle. Absent means off |
 | `showsCursor` | Show Cursor in Share toggle |
+| `lockAspect` | Lock Region Aspect toggle. Absent means off |
 | `didRequestScreenRecordingAccess` | Whether the system permission prompt has been shown |
 | `enablePlugins` | Enable Plugins toggle. Absent means off |
 
@@ -504,6 +577,12 @@ hash, so every build asks again. See [Signing](DEVELOPMENT.md#signing).
 requirement naming the old leaf certificate. Team-pinned builds do not have this problem;
 see [Signing](DEVELOPMENT.md#signing).
 
+**Half the shared picture is the wrong thing.** The region is lying across two displays,
+which capture cannot do: the stream comes from one display, and the part of the region on
+the other screen is filled with whatever is at that rectangle on the first. The menu says
+so under Region Presets while it is happening, and **Copy Diagnostics** repeats it. Move or
+shrink the region until it is on one screen.
+
 **Finder shows a generic icon.** Icon Services cache. Run `touch VirtualDisplay.app` or
 `killall Finder`.
 
@@ -518,6 +597,9 @@ screen. The same report is available without the GUI:
 ```sh
 /Applications/VirtualDisplay.app/Contents/MacOS/VirtualDisplay --doctor
 ```
+
+`--doctor` runs in a second process, so it reports everything except the `region` and
+`shortcuts` sections, which only the running app can answer for.
 
 `on-screen normal windows` is the set a picker draws from. If the output window is listed
 there, the exclusion is on the conferencing app's side. If it only appears under `all

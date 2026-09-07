@@ -45,6 +45,28 @@ public enum Geometry {
         CGRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height)
     }
 
+    /// Shrinks a frame onto an aspect ratio, keeping its top-left corner. Never grows, so
+    /// a frame already inside a screen is still inside it afterwards.
+    public static func fit(_ frame: CGRect, aspect: CGSize) -> CGRect {
+        guard aspect.width > 0, aspect.height > 0, frame.width > 0, frame.height > 0 else {
+            return frame
+        }
+        let ratio = aspect.width / aspect.height
+        let size = frame.width / frame.height > ratio
+            ? CGSize(width: frame.height * ratio, height: frame.height)
+            : CGSize(width: frame.width, height: frame.width / ratio)
+        return resizedFromTop(frame, to: size)
+    }
+
+    /// Whether a rectangle overlaps more than one screen. Capture is built from a single
+    /// `SCDisplay`, so a region that spans two of them cannot be mirrored whole.
+    ///
+    /// Zero-area contact does not count: a frame flush against the boundary between two
+    /// screens sits on one of them.
+    public static func spansDisplays(_ region: CGRect, screens: [CGRect]) -> Bool {
+        screens.filter { $0.intersects(region) }.count > 1
+    }
+
     /// Where a frame of the given size sits for each anchor, within `visible`.
     public static func origin(for spot: RegionSpot, size: CGSize, in visible: CGRect) -> CGPoint {
         switch spot {
@@ -90,10 +112,14 @@ public enum RegionSpot: Int, CaseIterable, Sendable {
 public struct RegionSize: Sendable {
     public let name: String
     public let size: CGSize?
+    /// Where the preset puts the region, in AppKit screen points. `nil` resizes it where
+    /// it stands, which is what the built-in sizes do.
+    public let origin: CGPoint?
 
-    public init(name: String, size: CGSize?) {
+    public init(name: String, size: CGSize?, origin: CGPoint? = nil) {
         self.name = name
         self.size = size
+        self.origin = origin
     }
 
     /// On a 2x display 960x540 pt is exactly the 1920x1080 px output canvas, so it

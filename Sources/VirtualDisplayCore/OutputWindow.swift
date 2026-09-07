@@ -63,7 +63,8 @@ public final class OutputWindow: NSWindow {
         // Behind the video: the rounded corners a titled window keeps are transparent
         // otherwise, and a meeting renders that as whatever was underneath.
         backgroundColor = .black
-        contentAspectRatio = NSSize(width: 16, height: 9)
+        // The canvas's shape, so the picture fills the window at any size.
+        contentAspectRatio = NSSize(width: OutputCanvas.size.width, height: OutputCanvas.size.height)
         isReleasedWhenClosed = false
 
         sink.layer.videoGravity = .resizeAspect
@@ -83,5 +84,16 @@ public final class OutputWindow: NSWindow {
 
         setFrameUsingName("OutputWindow")
         setFrameAutosaveName("OutputWindow")
+    }
+
+    /// Adopts the current canvas. The window is built before `config.json` is read, and
+    /// the canvas can change again while it is open.
+    public func canvasChanged() {
+        contentAspectRatio = NSSize(width: OutputCanvas.size.width,
+                                    height: OutputCanvas.size.height)
+        // contentAspectRatio only constrains the next resize, so the current frame is
+        // reshaped here.
+        setContentSize(NSSize(width: frame.width,
+                              height: frame.width * OutputCanvas.size.height / OutputCanvas.size.width))
     }
 }

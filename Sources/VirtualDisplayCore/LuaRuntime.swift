@@ -54,14 +54,23 @@ public final class LuaRuntime {
 
     // MARK: Loading
 
-    public func load(from directory: URL = ConfigPaths.plugins) {
+    /// Every plugin in the directory, in load order, whether or not it is turned on. The
+    /// settings window lists these; `load` runs them.
+    ///
+    /// Sorted, so a plugin can rely on 10-base.lua running before 20-extra.lua.
+    public static func scripts(in directory: URL = ConfigPaths.plugins) -> [URL] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory,
+                                                                  includingPropertiesForKeys: nil)) ?? []
+        return files.filter { $0.pathExtension == "lua" }.sorted { $0.path < $1.path }
+    }
+
+    /// `disabled` holds file names, as `scripts` reports them.
+    public func load(from directory: URL = ConfigPaths.plugins, disabled: Set<String> = []) {
         unload()
         errors = []
 
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory,
-                                                                  includingPropertiesForKeys: nil)) ?? []
-        // Sorted, so a plugin can rely on 10-base.lua running before 20-extra.lua.
-        let candidates = files.filter { $0.pathExtension == "lua" }.sorted { $0.path < $1.path }
+        let candidates = Self.scripts(in: directory)
+            .filter { !disabled.contains($0.lastPathComponent) }
         let scripts = candidates.filter { script in
             guard Self.isSafelyOwned(script) else {
                 record("\(script.lastPathComponent): skipped, not owned by you or writable by others")

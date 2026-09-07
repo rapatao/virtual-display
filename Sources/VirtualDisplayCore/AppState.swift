@@ -12,6 +12,11 @@ public struct AppState: Equatable, Sendable, Codable {
     /// The region tracks the window you are working in, wherever it goes.
     public var followsFocus = false
     public var showsCursor = true
+    /// The region is held to the output canvas's aspect ratio, so nothing is letterboxed.
+    public var locksRegionAspect = false
+    /// The region covers more than one display, which capture cannot do. Read off the
+    /// screens rather than chosen.
+    public var regionSpansDisplays = false
     public var isLoginItemEnabled = false
     /// Session-only, like pause: a recording never survives a restart.
     public var isRecording = false

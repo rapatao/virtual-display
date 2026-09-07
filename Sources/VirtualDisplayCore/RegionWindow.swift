@@ -40,6 +40,26 @@ public final class RegionWindow: NSWindow, NSWindowDelegate {
         }
     }
 
+    /// Holds the region to a shape, the output canvas's. A region of any other shape is
+    /// letterboxed into the canvas.
+    ///
+    /// AppKit's `aspectRatio` covers the user dragging an edge; `place` covers presets,
+    /// snapping and follow mode, which set the frame programmatically and are not
+    /// constrained by it.
+    public var lockedAspect: CGSize? {
+        didSet {
+            guard lockedAspect != oldValue else { return }
+            if let lockedAspect {
+                aspectRatio = NSSize(width: lockedAspect.width, height: lockedAspect.height)
+                place(frame)   // the frame it was locked at is not on the ratio yet
+            } else {
+                // Setting resizeIncrements is how an aspect ratio is cleared; the two are
+                // mutually exclusive.
+                resizeIncrements = NSSize(width: 1, height: 1)
+            }
+        }
+    }
+
     public init() {
         super.init(contentRect: NSRect(x: 200, y: 200, width: 960, height: 540),
                    styleMask: [.titled, .resizable, .fullSizeContentView],
@@ -73,17 +93,35 @@ public final class RegionWindow: NSWindow, NSWindowDelegate {
 
     private var visibleArea: CGRect? { (screen ?? NSScreen.main)?.visibleFrame }
 
+    /// The visible area of the screen a proposed frame's centre lands on, which is not
+    /// always the screen the region is currently on: a preset with a saved position and a
+    /// followed window can both send it to another display.
+    private func visibleArea(for proposed: NSRect) -> CGRect? {
+        let centre = CGPoint(x: proposed.midX, y: proposed.midY)
+        let target = NSScreen.screens.first { $0.frame.contains(centre) }
+        return (target ?? screen ?? NSScreen.main)?.visibleFrame
+    }
+
     /// Every programmatic move goes through here, so the region can never be parked
     /// off-screen or made bigger than the display it sits on.
     public func place(_ proposed: NSRect) {
-        guard let visibleArea else { return }
+        guard let visibleArea = visibleArea(for: proposed) else { return }
+        // Clamp before fitting: fitting only shrinks, so the result is still on screen.
+        var wanted = Geometry.clamp(proposed, into: visibleArea)
+        if let lockedAspect { wanted = Geometry.fit(wanted, aspect: lockedAspect) }
         // setFrame posts didMove/didResize, so onFrameChanged fires from the delegate.
-        setFrame(Geometry.clamp(proposed, into: visibleArea), display: true)
+        setFrame(wanted, display: true)
     }
 
+    /// A preset with a position moves the region as well as resizing it; one without
+    /// resizes it where it stands.
     public func apply(size preset: RegionSize) {
         guard let visibleArea else { return }
-        place(Geometry.resizedFromTop(frame, to: preset.resolved(in: visibleArea)))
+        let size = preset.resolved(in: visibleArea)
+        guard let origin = preset.origin else {
+            return place(Geometry.resizedFromTop(frame, to: size))
+        }
+        place(CGRect(origin: origin, size: size))
     }
 
     public func apply(spot: RegionSpot) {

@@ -26,7 +26,7 @@ final class SettingsModelTests: XCTestCase {
         var environment = SettingsWindow.Environment()
         environment.config = { config }
         environment.save = { [self] in saved.append($0) }
-        environment.regionSize = { CGSize(width: 1280, height: 720) }
+        environment.regionFrame = { CGRect(x: 100, y: 200, width: 1280, height: 720) }
         return SettingsModel(environment: environment)
     }
 
@@ -97,6 +97,23 @@ final class SettingsModelTests: XCTestCase {
         model.removeFollowIgnores(IndexSet(integer: 0))
         XCTAssertEqual(model.config.followIgnores, ["zoom.us"])
         XCTAssertEqual(saved.count, 3, "every edit writes the file; there is no Save button")
+    }
+
+    /// The switch beside each plugin. Turning one off must not disturb the others, and
+    /// turning it back on must leave nothing behind in the file.
+    func testPluginsAreDisabledAndEnabledOneAtATime() {
+        let model = model()
+        XCTAssertTrue(model.isPluginEnabled("10-clock.lua"))
+
+        model.setPluginEnabled("10-clock.lua", false)
+        model.setPluginEnabled("10-clock.lua", false)   // no duplicate row in the file
+        XCTAssertEqual(model.config.disabledPlugins, ["10-clock.lua"])
+        XCTAssertFalse(model.isPluginEnabled("10-clock.lua"))
+        XCTAssertTrue(model.isPluginEnabled("20-ticker.lua"))
+
+        model.setPluginEnabled("20-ticker.lua", false)
+        model.setPluginEnabled("10-clock.lua", true)
+        XCTAssertEqual(model.config.disabledPlugins, ["20-ticker.lua"])
     }
 
     func testCaptureFoldersAreSetAndCleared() {

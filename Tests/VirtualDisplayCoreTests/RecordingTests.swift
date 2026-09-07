@@ -61,6 +61,74 @@ final class SampleWriterTests: XCTestCase {
         return try XCTUnwrap(sample)
     }
 
+    /// A second of silence, which is all the writer needs to prove it encodes what the
+    /// microphone hands it.
+    private func silence(at time: CMTime, frames: Int = 1024) throws -> CMSampleBuffer {
+        var asbd = AudioStreamBasicDescription(
+            mSampleRate: 44100,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: 4, mFramesPerPacket: 1, mBytesPerFrame: 4,
+            mChannelsPerFrame: 1, mBitsPerChannel: 32, mReserved: 0)
+        var format: CMAudioFormatDescription?
+        CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: &asbd,
+                                       layoutSize: 0, layout: nil, magicCookieSize: 0,
+                                       magicCookie: nil, extensions: nil,
+                                       formatDescriptionOut: &format)
+
+        let bytes = frames * 4
+        var block: CMBlockBuffer?
+        CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault, memoryBlock: nil,
+                                           blockLength: bytes, blockAllocator: kCFAllocatorDefault,
+                                           customBlockSource: nil, offsetToData: 0,
+                                           dataLength: bytes, flags: 0, blockBufferOut: &block)
+        let buffer = try XCTUnwrap(block)
+        CMBlockBufferFillDataBytes(with: 0, blockBuffer: buffer, offsetIntoDestination: 0,
+                                   dataLength: bytes)
+
+        var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 44100),
+                                        presentationTimeStamp: time,
+                                        decodeTimeStamp: .invalid)
+        var size = 4
+        var sample: CMSampleBuffer?
+        CMSampleBufferCreateReady(allocator: kCFAllocatorDefault, dataBuffer: buffer,
+                                  formatDescription: try XCTUnwrap(format),
+                                  sampleCount: frames, sampleTimingEntryCount: 1,
+                                  sampleTimingArray: &timing, sampleSizeEntryCount: 1,
+                                  sampleSizeArray: &size, sampleBufferOut: &sample)
+        return try XCTUnwrap(sample)
+    }
+
+    /// Sound arrives on its own queue, often before the first frame. The session starts at
+    /// the first video sample, and an audio sample older than that is refused outright, so
+    /// anything earlier has to be dropped rather than kill the recording.
+    func testRecordsAudioAndDropsWhatArrivesBeforeTheFirstFrame() async throws {
+        let url = temporaryURL()
+        let size = CGSize(width: 320, height: 180)
+        let writer = try SampleWriter(url: url, size: size, audioSettings: [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVNumberOfChannelsKey: 1,
+            AVSampleRateKey: 44100,
+        ])
+
+        // Before anything: nothing to append to yet.
+        writer.appendAudio(try silence(at: CMTime(value: -44100, timescale: 44100)))
+
+        for index in 0..<15 {
+            writer.append(try frame(at: CMTime(value: CMTimeValue(index), timescale: 30), size: size))
+            writer.appendAudio(try silence(at: CMTime(value: CMTimeValue(index * 1470), timescale: 44100)))
+        }
+        try await writer.finish()
+
+        let asset = AVURLAsset(url: url)
+        let video = try await asset.loadTracks(withMediaType: .video)
+        let audio = try await asset.loadTracks(withMediaType: .audio)
+        let recorded = try await audio.first?.load(.timeRange).duration.seconds ?? 0
+        XCTAssertEqual(video.count, 1)
+        XCTAssertEqual(audio.count, 1, "the microphone track is missing from the recording")
+        XCTAssertGreaterThan(recorded, 0)
+    }
+
     func testWritesAPlayableMovie() async throws {
         let url = temporaryURL()
         let size = CGSize(width: 320, height: 180)

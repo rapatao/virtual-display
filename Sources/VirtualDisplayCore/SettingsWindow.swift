@@ -14,9 +14,13 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
     public struct Environment {
         public var config: () -> Config = { Config() }
         public var save: (Config) -> Void = { _ in }
-        public var regionSize: () -> CGSize = { .zero }
+        public var regionFrame: () -> CGRect = { .zero }
         public var followsFocus: () -> Bool = { false }
         public var setFollowsFocus: (Bool) -> Void = { _ in }
+        /// Held in `UserDefaults`, like the other toggles the menu also owns, so it goes
+        /// through the coordinator rather than the config file.
+        public var locksAspect: () -> Bool = { false }
+        public var setLocksAspect: (Bool) -> Void = { _ in }
         public var pluginsEnabled: () -> Bool = { false }
         public var setPluginsEnabled: (Bool) -> Void = { _ in }
         public var reloadPlugins: () -> Void = {}
@@ -75,6 +79,7 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
     public func refresh() {
         model?.config = environment.config()
         model?.followsFocus = environment.followsFocus()
+        model?.locksAspect = environment.locksAspect()
     }
 
     public func windowWillClose(_ notification: Notification) {
@@ -95,8 +100,11 @@ final class SettingsModel: ObservableObject {
     @Published var tab: SettingsView.Tab = .presets
     @Published var config: Config
     @Published var followsFocus: Bool
+    @Published var locksAspect: Bool
     @Published var pluginsEnabled: Bool
     @Published var pluginErrors: [String]
+    /// The `.lua` files in the plugins directory, in load order.
+    @Published var pluginFiles: [String] = []
     /// Held here rather than in the view, so switching tabs and back does not throw away
     /// a result and start another request.
     @Published var updateStatus: UpdateStatus = .idle
@@ -115,8 +123,10 @@ final class SettingsModel: ObservableObject {
         self.environment = environment
         config = environment.config()
         followsFocus = environment.followsFocus()
+        locksAspect = environment.locksAspect()
         pluginsEnabled = environment.pluginsEnabled()
         pluginErrors = environment.pluginErrors()
+        refreshPluginFiles()
     }
 
     func commit() {
@@ -126,6 +136,32 @@ final class SettingsModel: ObservableObject {
     func setFollowsFocus(_ on: Bool) {
         followsFocus = on
         environment.setFollowsFocus(on)
+    }
+
+    func setLocksAspect(_ on: Bool) {
+        locksAspect = on
+        environment.setLocksAspect(on)
+    }
+
+    /// The canvas, or nil for the 1080p default. An entry that only repeats the default
+    /// is cleared rather than written.
+    func setCanvas(_ size: CGSize) {
+        config.output = size == OutputCanvas.standard
+            ? nil
+            : Config.Output(width: size.width, height: size.height)
+        commit()
+    }
+
+    func setFreezeOnPause(_ on: Bool) {
+        config.freezeOnPause = on ? true : nil
+        commit()
+    }
+
+    func setMicrophone(_ on: Bool) {
+        var captures = config.captures ?? Config.Captures()
+        captures.microphone = on ? true : nil
+        config.captures = captures
+        commit()
     }
 
     /// Duplicates are not an error, they are just noise in the list, so adding one is a
@@ -151,17 +187,49 @@ final class SettingsModel: ObservableObject {
     }
 
     func reloadPlugins() {
+        refreshPluginFiles()   // a file may have been added or removed since the last look
         environment.reloadPlugins()
         pluginErrors = environment.pluginErrors()
     }
 
-    func addCurrentRegionAsPreset() {
-        let size = environment.regionSize()
-        guard size.width > 0, size.height > 0 else { return }
-        let name = "\(Int(size.width)) x \(Int(size.height))"
+    /// The directory is read here rather than watched: it changes when someone puts a file
+    /// in it, which is not something the window is open for.
+    func refreshPluginFiles() {
+        pluginFiles = LuaRuntime.scripts().map(\.lastPathComponent)
+    }
+
+    func isPluginEnabled(_ file: String) -> Bool { config.loadsPlugin(file) }
+
+    /// Turning one off leaves the others running. The coordinator reloads on the way back
+    /// out, which is what takes away the commands, menu items and shortcuts it added.
+    func setPluginEnabled(_ file: String, _ on: Bool) {
+        if on {
+            config.disabledPlugins.removeAll { $0 == file }
+        } else if !config.disabledPlugins.contains(file) {
+            config.disabledPlugins.append(file)
+        }
+        commit()
+        pluginErrors = environment.pluginErrors()
+    }
+
+    /// What this file said when it last failed to load. `LuaRuntime` prefixes its errors
+    /// with the file name.
+    func pluginError(_ file: String) -> String? {
+        pluginErrors.first { $0.hasPrefix("\(file):") }
+    }
+
+    /// `withPosition` captures where the region is as well as how big it is, so applying
+    /// the preset puts it back exactly there.
+    func addCurrentRegionAsPreset(withPosition: Bool = false) {
+        let frame = environment.regionFrame()
+        guard frame.width > 0, frame.height > 0 else { return }
+        var name = "\(Int(frame.width)) x \(Int(frame.height))"
+        if withPosition { name += " at \(Int(frame.minX)),\(Int(frame.minY))" }
         config.presets.append(Config.Preset(name: name,
-                                            width: Double(Int(size.width)),
-                                            height: Double(Int(size.height))))
+                                            width: Double(Int(frame.width)),
+                                            height: Double(Int(frame.height)),
+                                            x: withPosition ? Double(Int(frame.minX)) : nil,
+                                            y: withPosition ? Double(Int(frame.minY)) : nil))
         commit()
     }
 
@@ -220,6 +288,7 @@ struct SettingsView: View {
 
     enum Tab: String, CaseIterable, Identifiable {
         case presets = "Presets"
+        case output = "Output"
         case shortcuts = "Shortcuts"
         case follow = "Follow"
         case captures = "Captures"
@@ -230,6 +299,7 @@ struct SettingsView: View {
         var symbol: String {
             switch self {
             case .presets: return "rectangle.3.group"
+            case .output: return "aspectratio"
             case .shortcuts: return "keyboard"
             case .follow: return "dot.viewfinder"
             case .captures: return "photo.on.rectangle"
@@ -275,6 +345,7 @@ struct SettingsView: View {
     @ViewBuilder private var pane: some View {
         switch model.tab {
         case .presets: PresetsTab(model: model)
+        case .output: OutputTab(model: model)
         case .shortcuts: ShortcutsTab(model: model)
         case .follow: FollowTab(model: model)
         case .captures: CapturesTab(model: model)
@@ -290,8 +361,10 @@ private struct PresetsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sizes added here join the built-in ones in Region Presets. "
-                 + "Type a name and a size, or capture the region as it is now.")
+            Text("Sizes added here join the built-in ones in Region Presets. Type a name "
+                 + "and a size, or capture the region as it is now. A preset with an X and "
+                 + "a Y moves the region there as well as resizing it; leave them empty to "
+                 + "resize it where it stands.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -307,7 +380,9 @@ private struct PresetsTab: View {
 
             HStack {
                 Button("Add Preset") { model.addPreset() }
-                Button("Add Current Region Size") { model.addCurrentRegionAsPreset() }
+                Button("Add Current Size") { model.addCurrentRegionAsPreset() }
+                Button("Add Current Region") { model.addCurrentRegionAsPreset(withPosition: true) }
+                    .help("Size and position, so the preset puts the region back exactly here")
                 Button("Remove") {
                     model.removePresets(IndexSet(selected))
                     selected = []
@@ -337,10 +412,109 @@ private struct PresetRow: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 70)
                 .multilineTextAlignment(.trailing)
-            Text("pt").foregroundStyle(.secondary)
+            Text("pt at").foregroundStyle(.secondary)
+            OptionalNumberField(placeholder: "X", value: $preset.x)
+            OptionalNumberField(placeholder: "Y", value: $preset.y)
         }
         .padding(.vertical, 2)
     }
+}
+
+/// A number that may be absent, which `TextField(value:format:)` cannot express: it
+/// insists on a value, and a preset with no position has none. Empty reads as nil; text
+/// that is not a number leaves the value alone.
+private struct OptionalNumberField: View {
+    let placeholder: String
+    @Binding var value: Double?
+
+    var body: some View {
+        TextField(placeholder, text: Binding(
+            get: { value.map { String(Int($0)) } ?? "" },
+            set: { value = $0.isEmpty ? nil : Double($0) ?? value }))
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 60)
+            .multilineTextAlignment(.trailing)
+    }
+}
+
+/// What the mirror produces: the shape the region is held to, the canvas everything is
+/// rendered at, and what a pause leaves on screen.
+private struct OutputTab: View {
+    @ObservedObject var model: SettingsModel
+
+    /// The sizes offered. A hand-edited `output` outside this list is added to it, so the
+    /// picker always has the current value to select.
+    private static func label(_ size: CGSize) -> String {
+        "\(Int(size.width)) x \(Int(size.height))"
+    }
+
+    private var choices: [CGSize] {
+        let standard = [CGSize(width: 1280, height: 720), OutputCanvas.standard,
+                        CGSize(width: 2560, height: 1440), CGSize(width: 3840, height: 2160)]
+        let current = model.config.canvasSize
+        return standard.contains(current) ? standard : standard + [current]
+    }
+
+    private var aspectName: String {
+        let size = model.config.canvasSize
+        let divisor = gcd(Int(size.width), Int(size.height))
+        guard divisor > 0 else { return "the output" }
+        return "\(Int(size.width) / divisor):\(Int(size.height) / divisor)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Toggle("Lock the region to \(aspectName)",
+                   isOn: Binding(get: { model.locksAspect },
+                                 set: { model.setLocksAspect($0) }))
+                .toggleStyle(.switch)
+            Text("A region that is not the shape of the output is letterboxed into it, "
+                 + "which is black bars on two sides of everything you share. Locked, the "
+                 + "region keeps that shape however you drag it, and presets, snapping and "
+                 + "follow mode are fitted to it.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            HStack {
+                // Tagged by label: CGSize is only Hashable from macOS 15, and this app
+                // runs on 14.
+                Picker("Output size", selection: Binding(
+                    get: { Self.label(model.config.canvasSize) },
+                    set: { chosen in
+                        guard let size = choices.first(where: { Self.label($0) == chosen })
+                        else { return }
+                        model.setCanvas(size)
+                    })) {
+                    ForEach(choices.map(Self.label), id: \.self) { Text($0).tag($0) }
+                }
+                .fixedSize()
+                Spacer()
+            }
+            Text("The canvas the mirror, screenshots and recordings are produced at. A "
+                 + "region larger than this is downsampled, which is what costs a shared "
+                 + "terminal its legibility; a larger canvas buys that back and costs "
+                 + "encoding work.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            Toggle("Freeze the last frame when paused",
+                   isOn: Binding(get: { model.config.freezeOnPause == true },
+                                 set: { model.setFreezeOnPause($0) }))
+                .toggleStyle(.switch)
+            Text("Pause blanks the share by default, which is unmistakably a pause. "
+                 + "Frozen, the meeting keeps seeing the last frame, which is tidier and "
+                 + "easier to mistake for a live picture.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
+    }
+
+    private func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? a : gcd(b, a % b) }
 }
 
 private struct ShortcutsTab: View {
@@ -574,9 +748,19 @@ private struct CapturesTab: View {
                       path: model.config.captures?.recordings,
                       fallback: "~/Movies/Virtual Display",
                       screenshots: false)
-            Text("Recordings are H.264 at 1920x1080, video only. Both capture the shared "
-                 + "window, overlays included.")
+
+            Divider()
+
+            Toggle("Record microphone audio",
+                   isOn: Binding(get: { model.config.captures?.microphone == true },
+                                 set: { model.setMicrophone($0) }))
+                .toggleStyle(.switch)
+            Text("Your voice over the picture, asked for the first time a recording "
+                 + "starts. System audio is not recorded: what the meeting plays back is "
+                 + "not something this app can hear. Recordings are H.264, and both "
+                 + "captures grab the shared window, overlays included.")
                 .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer()
         }
     }
@@ -639,6 +823,8 @@ private struct PluginsTab: View {
                     .disabled(!model.pluginsEnabled)
             }
 
+            installed
+
             if !model.pluginErrors.isEmpty {
                 GroupBox("Errors") {
                     ScrollView {
@@ -651,6 +837,36 @@ private struct PluginsTab: View {
                 }
             }
             Spacer()
+        }
+    }
+
+    /// The files in the directory, in the order they load, each with its own switch. A
+    /// plugin turned off here stays on disk and stops running; the rest are unaffected.
+    @ViewBuilder private var installed: some View {
+        if model.pluginFiles.isEmpty {
+            Text("No .lua files in this folder yet.")
+                .font(.callout).foregroundStyle(.secondary)
+        } else {
+            List {
+                ForEach(model.pluginFiles, id: \.self) { file in
+                    HStack(spacing: 8) {
+                        Toggle(file, isOn: Binding(get: { model.isPluginEnabled(file) },
+                                                   set: { model.setPluginEnabled(file, $0) }))
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .disabled(!model.pluginsEnabled)
+                        Spacer()
+                        if let error = model.pluginError(file) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .help(error)
+                        }
+                    }
+                    .padding(.vertical, 1)
+                }
+            }
+            .border(.separator)
+            .frame(minHeight: 90)
         }
     }
 }

@@ -41,6 +41,26 @@ final class LuaRuntimeTests: XCTestCase {
         XCTAssertEqual(calls.first?.1, ["width": "1280", "height": "720"])
     }
 
+    /// One plugin turned off in the settings window must leave the others running, and
+    /// must not be reported as an error: it is off because someone said so.
+    func testADisabledPluginIsSkippedAndTheOthersStillLoad() {
+        plugin("10-off.lua", #"vd.command("toggle-mirroring")"#)
+        plugin("20-on.lua", #"vd.command("toggle-pause")"#)
+
+        var calls: [String] = []
+        var host = LuaRuntime.Host()
+        host.perform = { name, _ in calls.append(name); return nil }
+
+        let runtime = LuaRuntime(host: host)
+        runtime.load(from: directory, disabled: ["10-off.lua"])
+
+        XCTAssertEqual(calls, ["toggle-pause"])
+        XCTAssertEqual(runtime.errors, [])
+        // Still listed: a plugin that is off is one the settings window has to offer.
+        XCTAssertEqual(LuaRuntime.scripts(in: directory).map(\.lastPathComponent),
+                       ["10-off.lua", "20-on.lua"])
+    }
+
     func testABrokenPluginIsReportedAndTheOthersStillLoad() {
         plugin("10-broken.lua", "this is not lua")
         plugin("20-fine.lua", #"vd.command("toggle-pause")"#)
