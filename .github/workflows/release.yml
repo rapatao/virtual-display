@@ -173,10 +173,14 @@ jobs:
 
             # The app is not notarized, so macOS quarantines the downloaded bundle and
             # Gatekeeper refuses to open it. Clearing the flag is what makes it launch.
-            postflight do
-              if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-                system_command "/usr/bin/xattr",
-                               args: ["-dr", "com.apple.quarantine", "#{appdir}/VirtualDisplay.app"]
+            #
+            # Steps rather than a postflight block: the block form is on its way out, and
+            # the declarative form runs in Homebrew's sandbox. Needs Homebrew 5.1.14 or
+            # newer, which is where cask install steps landed.
+            postflight_steps do
+              if_path_exists "/usr/bin/xattr" do
+                run "/usr/bin/xattr",
+                    args: ["-dr", "com.apple.quarantine", "{{appdir}}/VirtualDisplay.app"]
               end
             end
 
