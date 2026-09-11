@@ -27,8 +27,12 @@ final class AppStateTests: XCTestCase {
         XCTAssertFalse(state.canCaptureOutput)
         state.isMirroring = true
         XCTAssertTrue(state.canCaptureOutput)
-        // Paused still counts: freezing the picture and grabbing a still is reasonable.
+        // A blanking pause leaves nothing in that window but black, and a screenshot of
+        // black is the one result nobody presses the button for.
         state.isPaused = true
+        XCTAssertFalse(state.canCaptureOutput)
+        // Frozen, the last frame is still up, and grabbing a still of it is reasonable.
+        state.freezesOnPause = true
         XCTAssertTrue(state.canCaptureOutput)
     }
 

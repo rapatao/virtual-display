@@ -128,6 +128,54 @@ final class SettingsModelTests: XCTestCase {
     }
 }
 
+/// Recording a shortcut suspends the hot keys, saves the config, and resumes. The save
+/// re-registers everything in between, which is what used to leave two live Carbon
+/// registrations on one combination and fire the action twice per press.
+@MainActor
+final class HotKeySuspensionTests: XCTestCase {
+
+    /// Nothing else in this process registers a shortcut, so both owners are ours to
+    /// hand back.
+    override func tearDown() {
+        HotKeyCenter.shared.setSuspended(false)
+        HotKeyCenter.shared.unregister(owner: .plugin)
+        HotKeyCenter.shared.unregister(owner: .app)
+        super.tearDown()
+    }
+
+    func testABindingMadeWhileSuspendedIsRegisteredExactlyOnce() {
+        let center = HotKeyCenter.shared
+        center.setSuspended(true)
+        let before = center.registrationAttempts
+        // What `adopt()` does behind an open recorder: drop the old binding, add the new.
+        center.unregister(owner: .plugin)
+        XCTAssertTrue(center.register(keyCode: 15, owner: .plugin, label: "test-r") {})
+        center.setSuspended(false)
+
+        // Twice was the bug: once while suspended, once on resume, with only the second
+        // ref kept. Both stayed live and the combination fired the action twice.
+        XCTAssertEqual(center.registrationAttempts - before, 1)
+        let mine = center.summary().filter { $0.hasPrefix("test-r:") }
+        XCTAssertEqual(mine.count, 1, "one binding, one line: \(center.summary())")
+    }
+
+    /// The app re-registers its shortcuts on every config save, so a key another app holds
+    /// used to add a duplicate refusal line per keystroke typed in the settings window.
+    func testRefusalsDoNotAccumulateAcrossReRegistration() {
+        let center = HotKeyCenter.shared
+        // Three saves in the settings window, which is three characters typed.
+        for _ in 0..<3 {
+            center.unregister(owner: .app)
+            // The same combination twice: whatever the environment makes of the first,
+            // the second is a duplicate and is refused.
+            center.register(keyCode: 15, owner: .app, label: "test-r") {}
+            center.register(keyCode: 15, owner: .app, label: "test-r") {}
+        }
+        let taken = center.summary().filter { $0.hasPrefix("test-r:") && $0.contains("TAKEN") }
+        XCTAssertEqual(taken.count, 1, "one refusal, not one per save: \(taken)")
+    }
+}
+
 final class ShortcutRoundTripTests: XCTestCase {
 
     /// The recorder writes specs back into the file the parser reads.

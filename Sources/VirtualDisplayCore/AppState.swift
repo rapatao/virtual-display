@@ -20,6 +20,10 @@ public struct AppState: Equatable, Sendable, Codable {
     public var isLoginItemEnabled = false
     /// Session-only, like pause: a recording never survives a restart.
     public var isRecording = false
+    /// Pause leaves the last frame in the shared window instead of blanking it. Read from
+    /// the config file, kept here because what a pause looks like decides what a
+    /// screenshot of it is worth.
+    public var freezesOnPause = false
     /// Off until the user says otherwise: a plugin is arbitrary code with this app's
     /// Screen Recording grant.
     public var arePluginsEnabled = false
@@ -61,7 +65,8 @@ public struct AppState: Equatable, Sendable, Codable {
     /// Pause is meaningless with nothing running and must not look available then.
     public var canPause: Bool { isMirroring }
 
-    /// Both capture the output window, so both need it to exist. Paused counts: freezing
-    /// the picture and grabbing a still of it is a reasonable thing to want.
-    public var canCaptureOutput: Bool { showsOutputWindow }
+    /// Both capture the output window, so both need it to exist. A pause counts only when
+    /// it freezes: a blanked pause has nothing in that window but black, and a screenshot
+    /// of it is a black PNG nobody asked for.
+    public var canCaptureOutput: Bool { showsOutputWindow && (!isPaused || freezesOnPause) }
 }

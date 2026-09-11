@@ -49,6 +49,8 @@ public enum CaptureFiles {
 
 public enum CaptureFailure: LocalizedError {
     case windowGone
+    /// Paused and blanking, so the shared window holds nothing worth capturing.
+    case paused
     case noFrames
     case writer(String)
     /// The picture is still being recorded; only the sound is missing.
@@ -57,6 +59,8 @@ public enum CaptureFailure: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .windowGone: return "The shared window is not on screen. Turn mirroring on first."
+        case .paused: return "The share is blanked while paused. Resume it, or turn on "
+            + "\"Freeze the last frame when paused\" in Settings > Output."
         case .noFrames: return "No frames arrived, so nothing was written."
         case .writer(let why): return why
         case .microphone(let why): return "Recording without audio: \(why)"

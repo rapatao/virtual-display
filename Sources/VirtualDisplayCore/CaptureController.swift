@@ -49,7 +49,16 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
     private var config = SCStreamConfiguration()
     private var display: SCDisplay?
 
-    public var isRunning: Bool { stream != nil }
+    /// Starting is not instant: building the filter and `startCapture` are both awaited,
+    /// and a toggle landing in that window used to find nothing to act on.
+    private var isStarting = false
+    /// What was last asked for, so a `stop` that arrives mid-start is still honoured.
+    private var wantsRunning = false
+    private var blanksOnStop = true
+
+    /// Counts the half-built stream too: `render()` decides whether to start from this,
+    /// and a second start would build a stream nothing holds a reference to.
+    public var isRunning: Bool { stream != nil || isStarting }
 
     public var showsCursor: Bool = true {
         didSet {
@@ -69,7 +78,10 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
     /// SCStream is not restartable after stopCapture, so stopping means discarding and
     /// rebuilding. `start` is cheap enough that this is not worth working around.
     public func start() async throws {
-        guard stream == nil else { return }
+        guard !isRunning else { return }
+        isStarting = true
+        wantsRunning = true
+        defer { isStarting = false }
 
         let filter = try await makeFilter()
         config.width = Int(OutputCanvas.size.width)
@@ -85,12 +97,23 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
         let s = SCStream(filter: filter, configuration: config, delegate: self)
         try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try await s.startCapture()
+
+        // Mirroring was turned off while this was starting. That `stop` found no stream to
+        // stop, so it is honoured here: otherwise the capture runs on, with the recording
+        // indicator lit, while the menu says it is off.
+        guard wantsRunning else {
+            try? await s.stopCapture()
+            if blanksOnStop { sink.blank() }
+            return
+        }
         stream = s
     }
 
     /// `blanking: false` leaves the last frame in the output window instead of clearing
     /// it, which is what a pause set to freeze shows.
     public func stop(blanking: Bool = true) {
+        wantsRunning = false
+        blanksOnStop = blanking
         guard let old = stream else { return }
         stream = nil
         Task {

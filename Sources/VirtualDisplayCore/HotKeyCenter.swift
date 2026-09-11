@@ -24,9 +24,16 @@ public final class HotKeyCenter {
     private var entries: [UInt32: Entry] = [:]
     /// Shortcuts another app already holds. Kept so the diagnostics report can say so:
     /// a shortcut that silently does nothing is otherwise unanswerable.
-    private var refused: [String] = []
+    ///
+    /// By owner, and a set: the app's shortcuts are re-registered on every config save, so
+    /// a list would grow a duplicate line per keystroke typed in the settings window.
+    private var refused: [Owner: Set<String>] = [:]
     private var nextID: UInt32 = 1
     private var handlerInstalled = false
+    /// How many times a key has been asked of Carbon. The leak this counts is invisible
+    /// otherwise: a second `RegisterEventHotKey` for a combination overwrites the ref we
+    /// hold, so nothing can hand the first one back and the shortcut fires twice.
+    private(set) var registrationAttempts = 0
 
     private init() {}
 
@@ -41,12 +48,24 @@ public final class HotKeyCenter {
         let id = nextID
         nextID += 1
 
+        // Suspended: remember the binding without taking the key, because resuming
+        // registers every entry it holds. Taking it here would leave that first
+        // registration live and unreferenced, and the combination would then fire twice.
+        // Recording a shortcut in settings saves the config, which re-registers, which is
+        // exactly this path.
+        guard !isSuspended else {
+            entries[id] = Entry(ref: nil, keyCode: keyCode, modifiers: modifiers,
+                                owner: owner, label: label, handler: handler)
+            return true
+        }
+
         var ref: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: OSType(0x56_44_49_53), id: id)   // 'VDIS'
+        registrationAttempts += 1
         let status = RegisterEventHotKey(UInt32(keyCode), modifiers, hotKeyID,
                                          GetApplicationEventTarget(), 0, &ref)
         guard status == noErr else {
-            if !label.isEmpty { refused.append(label) }
+            if !label.isEmpty { refused[owner, default: []].insert(label) }
             return false
         }
 
@@ -57,9 +76,12 @@ public final class HotKeyCenter {
 
     /// For the diagnostics report: what is live, and what another app took.
     public func summary() -> [String] {
-        let live = entries.values.map(\.label).filter { !$0.isEmpty }.sorted()
+        // A nil ref is a key we are not holding: refused, or handed back for a recorder.
+        // Reporting those as active is how a shortcut that does nothing reads as fine.
+        let live = entries.values.filter { $0.ref != nil }
+            .map(\.label).filter { !$0.isEmpty }.sorted()
         return live.map { "\($0): active" }
-            + refused.sorted().map { "\($0): TAKEN by another app" }
+            + refused.values.flatMap { $0 }.sorted().map { "\($0): TAKEN by another app" }
     }
 
     /// Hands the key back to the system, so reloading a plugin that binds a different
@@ -69,7 +91,7 @@ public final class HotKeyCenter {
             if let ref = entry.ref { UnregisterEventHotKey(ref) }
             entries[id] = nil
         }
-        if owner == .plugin { refused = [] }   // a reload re-reports its own failures
+        refused[owner] = nil   // whatever re-registers next re-reports its own failures
     }
 
     /// Hands every shortcut back to the system for as long as something else needs the
@@ -87,9 +109,15 @@ public final class HotKeyCenter {
             } else {
                 var ref: EventHotKeyRef?
                 let hotKeyID = EventHotKeyID(signature: OSType(0x56_44_49_53), id: id)
+                registrationAttempts += 1
                 let status = RegisterEventHotKey(UInt32(entry.keyCode), entry.modifiers, hotKeyID,
                                                  GetApplicationEventTarget(), 0, &ref)
                 entries[id]?.ref = status == noErr ? ref : nil
+                // A shortcut bound while suspended is registered for the first time here,
+                // so this is where it finds out the key is already taken.
+                if status != noErr, !entry.label.isEmpty {
+                    refused[entry.owner, default: []].insert(entry.label)
+                }
             }
         }
     }
