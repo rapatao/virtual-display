@@ -14,6 +14,9 @@ public enum Preferences {
         case lockAspect
         case didRequestScreenRecordingAccess
         case enablePlugins
+        case requireAutomationToken
+        case automationToken
+        case automationGrants
     }
 
     /// Startup values for settings the user has never toggled, supplied by the config
@@ -66,6 +69,60 @@ public enum Preferences {
     public static var pluginsEnabled: Bool {
         get { bool(.enablePlugins, default: false) }
         set { set(newValue, .enablePlugins) }
+    }
+
+    // MARK: Automation
+
+    /// On by default. A token in the URL is the only thing a web page cannot supply, and
+    /// the commands it guards are the ones worth guarding. Turning it off falls back to
+    /// asking once per command, which is `automationGrants`.
+    public static var requiresAutomationToken: Bool {
+        get { bool(.requireAutomationToken, default: true) }
+        set { set(newValue, .requireAutomationToken) }
+    }
+
+    /// Made on first read rather than at launch, so an app that is never automated never
+    /// stores one. Replaced by the Regenerate button, which is what makes a token that
+    /// leaked into shell history recoverable.
+    public static var automationToken: String {
+        get {
+            if let stored = defaults.string(forKey: Key.automationToken.rawValue),
+               !stored.isEmpty {
+                return stored
+            }
+            let fresh = AutomationPolicy.freshToken()
+            defaults.set(fresh, forKey: Key.automationToken.rawValue)
+            return fresh
+        }
+        set { defaults.set(newValue, forKey: Key.automationToken.rawValue) }
+    }
+
+    /// What each command does when a URL asks for it, by command name. A command with no
+    /// entry is on the default.
+    ///
+    /// Values that are not one of the rules are dropped rather than guessed at, so an
+    /// unreadable entry fails to the default instead of to something permissive.
+    public static var automationRules: [String: AutomationPolicy.Rule] {
+        get {
+            let stored = defaults.dictionary(forKey: Key.automationGrants.rawValue) ?? [:]
+            return stored.compactMapValues { value in
+                if let name = value as? String { return AutomationPolicy.Rule(rawValue: name) }
+                // A boolean is how this was written before the rules had names.
+                if let allowed = value as? Bool { return allowed ? .allow : .deny }
+                return nil
+            }
+        }
+        set {
+            defaults.set(newValue.mapValues(\.rawValue), forKey: Key.automationGrants.rawValue)
+        }
+    }
+
+    /// Everything the automation gate needs, read together so a decision is made from one
+    /// consistent picture.
+    public static var automationPolicy: AutomationPolicy {
+        AutomationPolicy(requiresToken: requiresAutomationToken,
+                         token: automationToken,
+                         rules: automationRules)
     }
 
     /// macOS shows its Screen Recording dialog exactly once per app, ever, and offers no

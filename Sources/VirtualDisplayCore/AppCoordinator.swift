@@ -45,18 +45,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             render()
             report(error)
         }
-        regionWindow.onFrameChanged = { [weak self] in
-            guard let self else { return }
-            capture.regionChanged()
-            // This fires on every pixel of a drag, so it renders only on a change.
-            let spans = regionSpansDisplays()
-            if spans != state.regionSpansDisplays {
-                state.regionSpansDisplays = spans
-                render()
-            }
-            let f = regionWindow.frame
-            lua.emit("region_moved", ["x": f.minX, "y": f.minY, "w": f.width, "h": f.height])
-        }
+        regionWindow.onFrameChanged = { [weak self] in self?.regionChanged() }
         regionWindow.onScreenChanged = { [weak self] in self?.capture.screenChanged() }
     }
 
@@ -86,6 +75,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         state.regionSpansDisplays = regionSpansDisplays()
         state.isLoginItemEnabled = LoginItem.isEnabled
         state.arePluginsEnabled = Preferences.pluginsEnabled
+        state.freezesOnPause = config.freezeOnPause == true
         capture.showsCursor = state.showsCursor
 
         registerCommands()
@@ -298,11 +288,15 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         commands.register("start-recording",
                           "Record the shared window: path= (optional), mic=true|false") { [weak self] args in
             guard let self else { return nil }
-            guard !state.isRecording else { return recorder.url?.path }
+            // `state.isRecording` only turns on inside the async start below, so a
+            // double-tapped shortcut would get past it twice: the second start writes
+            // nothing and reports a path no file ever lands at.
+            guard !state.isRecording, !isStartingRecording else { return recorder.url?.path }
             let url = try destination(args, fallback: CaptureFiles.recording())
             let window = try shareableWindowNumber()
             let microphone = args["mic"] == nil ? config.captures?.microphone ?? false
                                                 : try args.bool("mic")
+            isStartingRecording = true
             Task { await self.beginRecording(windowNumber: window, to: url, microphone: microphone) }
             return url.path
         }
@@ -321,10 +315,15 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     // MARK: Screenshot and recording
 
     private let recorder = Recorder()
+    /// Set the moment a start is asked for rather than when it completes, so two presses
+    /// inside the time it takes to open the stream are one recording.
+    private var isStartingRecording = false
 
-    /// Both grab the output window, which only exists while mirroring does.
+    /// Both grab the output window, which only exists while mirroring does, and holds
+    /// nothing but black while a blanking pause is on.
     private func shareableWindowNumber() throws -> Int {
-        guard state.canCaptureOutput else { throw CaptureFailure.windowGone }
+        guard state.showsOutputWindow else { throw CaptureFailure.windowGone }
+        guard state.canCaptureOutput else { throw CaptureFailure.paused }
         return outputWindow.windowNumber
     }
 
@@ -353,6 +352,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     }
 
     private func beginRecording(windowNumber: Int, to url: URL, microphone: Bool) async {
+        defer { isStartingRecording = false }
         do {
             try await recorder.start(windowNumber: windowNumber, to: url, microphone: microphone)
             state.isRecording = true
@@ -404,7 +404,19 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         environment.setPluginsEnabled = { [weak self] on in self?.setPlugins(on) }
         environment.reloadPlugins = { [weak self] in self?.reloadPlugins() }
         environment.pluginErrors = { [weak self] in self?.lua.errors ?? [] }
-        environment.commands = { [weak self] in self?.commands.names ?? [] }
+        // Every registered command, plugins included: the gate covers all of them, so the
+        // permission list has to as well.
+        environment.commands = { [weak self] in self?.commands.catalog ?? [] }
+        environment.automation = { Preferences.automationPolicy }
+        environment.setRequiresToken = { Preferences.requiresAutomationToken = $0 }
+        environment.regenerateToken = {
+            Preferences.automationToken = AutomationPolicy.freshToken()
+            return Preferences.automationToken
+        }
+        environment.setRule = { command, rule in
+            Preferences.automationRules[command] = rule
+        }
+        environment.forgetRules = { Preferences.automationRules = [:] }
         environment.onVisibilityChanged = { [weak self] open in
             guard let self else { return }
             state.isShowingSettings = open
@@ -439,6 +451,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         menu?.setPresets(presets)
         CaptureFiles.screenshotFolder = config.captures?.screenshots
         CaptureFiles.recordingFolder = config.captures?.recordings
+        state.freezesOnPause = config.freezeOnPause == true
 
         // A canvas change reshapes the live stream, the shared window, and the region
         // when it is locked to the canvas.
@@ -446,7 +459,6 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             OutputCanvas.size = config.canvasSize
             outputWindow.canvasChanged()
             capture.canvasChanged()
-            render()
         }
 
         if pluginsChanged, state.arePluginsEnabled { reloadPlugins() }
@@ -455,6 +467,9 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         // used to hold, and Carbon has no way to edit a registration in place.
         HotKeyCenter.shared.unregister(owner: .app)
         registerHotKeys()
+        // The canvas reshapes the region's aspect lock, and freezing a pause decides
+        // whether a screenshot is offerable. Both are visible, so both go through render.
+        render()
     }
 
     // MARK: Plugins
@@ -469,7 +484,9 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             return try commands.perform(name, CommandCenter.Arguments(args))
         }
         host.registerCommand = { [weak self] name, body in
-            self?.commands.register(name, "plugin command", owner: .plugin, run: body)
+            // Shown as this command's description in settings, so it says where it came
+            // from: a plugin does not get to describe itself to the permission list.
+            self?.commands.register(name, "Added by a plugin", owner: .plugin, run: body)
         }
         host.addPreset = { [weak self] preset in
             guard let self else { return }
@@ -587,10 +604,88 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
                                        height: try args.double("height")))
     }
 
+    // MARK: The URL scheme
+
     /// The URL scheme, declared in Info.plist: `virtualdisplay://set-size?name=1280`.
-    /// One `open` call away from Shortcuts, Raycast, a Stream Deck or a shell script.
+    /// One `open` call away from Shortcuts, Raycast, a Stream Deck or a shell script,
+    /// and equally one `location.href` away from any web page: everything arriving here
+    /// is untrusted, so it goes through the automation gate first.
+    ///
+    /// A config file shortcut also names its command as a URL, but that is a key the user
+    /// bound on this machine, so it keeps using `run(url:)` and is never gated.
     public func application(_ application: NSApplication, open urls: [URL]) {
-        urls.forEach(run(url:))
+        urls.forEach(runExternal(url:))
+    }
+
+    private func runExternal(url: URL) {
+        let call = CommandCenter.parse(url: url)
+        let policy = Preferences.automationPolicy
+        let token = call.arguments[AutomationPolicy.tokenArgument]
+
+        switch policy.decision(command: call.name, presented: token) {
+        case .refuse(let why):
+            NSLog("virtual-display: refused %@: %@", url.absoluteString, why)
+            hud.show("Blocked: \(call.name)", symbol: "lock.slash")
+            return
+        case .ask(let remember):
+            guard askToAllow(call.name, remember: remember) else { return }
+        case .allow:
+            break
+        }
+
+        do {
+            // The token is the gate's argument, not the command's.
+            _ = try commands.perform(call.name,
+                                     call.arguments.removing(AutomationPolicy.tokenArgument))
+        } catch {
+            NSLog("virtual-display: %@: %@", url.absoluteString, error.localizedDescription)
+            NSSound.beep()
+        }
+    }
+
+    /// The question the gate asks. `remember: false` is a command set to Always ask, so
+    /// the standing answers are not offered: the user said to be asked every time, and a
+    /// dialog that quietly stops asking would be disobeying that.
+    private func askToAllow(_ command: String, remember: Bool) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Allow \"\(command)\" from a URL?"
+        alert.informativeText = remember
+            ? """
+              Something outside Virtual Display asked to run this command. If you did not \
+              just trigger it yourself, say no: a web page can ask for this.
+
+              "Always Allow" and "Don't Allow" set this command to Allow or Deny in \
+              Settings > Automation. Deny holds even with a valid token.
+              """
+            : """
+              Something outside Virtual Display asked to run this command. If you did not \
+              just trigger it yourself, say no: a web page can ask for this.
+
+              This command is set to Always ask in Settings > Automation, so it will ask \
+              again next time.
+              """
+        alert.addButton(withTitle: "Don't Allow")
+        alert.addButton(withTitle: "Allow Once")
+        if remember { alert.addButton(withTitle: "Always Allow") }
+        NSApp.activate(ignoringOtherApps: true)
+
+        switch alert.runModal() {
+        case .alertSecondButtonReturn:
+            return true   // this once, whatever the rule says
+        case .alertThirdButtonReturn:
+            setRule(.allow, for: command)
+            return true
+        default:
+            // A standing no, because an unwanted URL tends to arrive more than once. Under
+            // Always ask there is nothing to store: it refuses this call and asks again.
+            if remember { setRule(.deny, for: command) }
+            return false
+        }
+    }
+
+    private func setRule(_ rule: AutomationPolicy.Rule, for command: String) {
+        Preferences.automationRules[command] = rule
+        settings.refresh()   // the list in the window has just changed underneath it
     }
 
     /// Only ever shown while the activation policy is .regular; an accessory app has no
@@ -689,7 +784,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             Task { await startCapture() }
         } else {
             // A pause set to freeze keeps the last frame up; every other stop blanks.
-            capture.stop(blanking: !(state.isPaused && config.freezeOnPause == true))
+            capture.stop(blanking: !(state.isPaused && state.freezesOnPause))
         }
     }
 
@@ -747,6 +842,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
 
     /// An unfinalised .mov is not playable, so quitting waits for the file to close.
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        settings.flush()   // quitting mid-word must not lose the word either
         guard state.isRecording else { return .terminateNow }
         Task {
             await endRecording()
@@ -785,6 +881,39 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     /// half on the second screen filled with whatever is at that rectangle on the first.
     private func regionSpansDisplays() -> Bool {
         Geometry.spansDisplays(regionWindow.frame, screens: NSScreen.screens.map(\.frame))
+    }
+
+    // MARK: The region moved
+
+    private var regionSettle: Timer?
+    private var lastRegionSync = Date.distantPast
+    /// A drag reports every pixel. Each report costs a ScreenCaptureKit reconfiguration
+    /// and a Lua call, so they are coalesced to the frame rate the capture runs at.
+    ///
+    /// ponytail: leading edge so the mirror tracks the drag, trailing edge so where it was
+    /// let go always lands. A fixed 1/30s, because there is nothing to tune it against.
+    private static let regionSyncInterval = 1.0 / 30
+
+    private func regionChanged() {
+        regionSettle?.invalidate()
+        regionSettle = Timer.scheduledTimer(withTimeInterval: Self.regionSyncInterval,
+                                            repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.syncRegion() }
+        }
+        guard Date().timeIntervalSince(lastRegionSync) >= Self.regionSyncInterval else { return }
+        syncRegion()
+    }
+
+    private func syncRegion() {
+        lastRegionSync = Date()
+        capture.regionChanged()
+        let spans = regionSpansDisplays()
+        if spans != state.regionSpansDisplays {
+            state.regionSpansDisplays = spans
+            render()
+        }
+        let f = regionWindow.frame
+        lua.emit("region_moved", ["x": f.minX, "y": f.minY, "w": f.width, "h": f.height])
     }
 
     /// The part of the diagnostics report that needs the running app's own windows.

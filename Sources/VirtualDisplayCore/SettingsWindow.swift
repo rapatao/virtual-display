@@ -25,8 +25,19 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
         public var setPluginsEnabled: (Bool) -> Void = { _ in }
         public var reloadPlugins: () -> Void = {}
         public var pluginErrors: () -> [String] = { [] }
-        /// Command names to offer as shortcut targets.
-        public var commands: () -> [String] = { [] }
+        /// Every registered command with its summary, which is also every command the
+        /// gate covers.
+        public var commands: () -> [(name: String, summary: String)] = { [] }
+        /// The URL scheme's gate: the token, whether it is required, and the answers
+        /// remembered for each command it guards.
+        public var automation: () -> AutomationPolicy = { AutomationPolicy() }
+        public var setRequiresToken: (Bool) -> Void = { _ in }
+        /// Returns the new token, so the field can show it without a second read.
+        public var regenerateToken: () -> String = { "" }
+        /// `nil` forgets the rule, putting that command back to the default.
+        public var setRule: (String, AutomationPolicy.Rule?) -> Void = { _, _ in }
+        /// Every command back to the default.
+        public var forgetRules: () -> Void = {}
         /// Open or closed. The app takes a Dock icon while it is open, so the window can
         /// be found again after it goes behind something.
         public var onVisibilityChanged: (Bool) -> Void = { _ in }
@@ -80,9 +91,16 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
         model?.config = environment.config()
         model?.followsFocus = environment.followsFocus()
         model?.locksAspect = environment.locksAspect()
+        // An answer given to the gate's own alert lands here, not in the window.
+        model?.automation = environment.automation()
     }
 
+    /// A keystroke waiting out its debounce still owes the file a write. Closing the
+    /// window does this; so does quitting with it open.
+    public func flush() { model?.flush() }
+
     public func windowWillClose(_ notification: Notification) {
+        flush()
         window = nil   // rebuilt on next open, so it always shows current state
         model = nil
         environment.setShortcutsSuspended(false)   // in case it closed mid-recording
@@ -103,6 +121,7 @@ final class SettingsModel: ObservableObject {
     @Published var locksAspect: Bool
     @Published var pluginsEnabled: Bool
     @Published var pluginErrors: [String]
+    @Published var automation: AutomationPolicy
     /// The `.lua` files in the plugins directory, in load order.
     @Published var pluginFiles: [String] = []
     /// Held here rather than in the view, so switching tabs and back does not throw away
@@ -126,11 +145,57 @@ final class SettingsModel: ObservableObject {
         locksAspect = environment.locksAspect()
         pluginsEnabled = environment.pluginsEnabled()
         pluginErrors = environment.pluginErrors()
+        automation = environment.automation()
         refreshPluginFiles()
     }
 
+    // MARK: Automation
+
+    func setRequiresToken(_ on: Bool) {
+        automation.requiresToken = on
+        environment.setRequiresToken(on)
+    }
+
+    func regenerateToken() {
+        automation.token = environment.regenerateToken()
+    }
+
+    /// `nil` puts the command back to the default.
+    func setRule(_ command: String, _ rule: AutomationPolicy.Rule?) {
+        automation.rules[command] = rule
+        environment.setRule(command, rule)
+    }
+
+    func forgetRules() {
+        automation.rules = [:]
+        environment.forgetRules()
+    }
+
+    var commandCatalog: [(name: String, summary: String)] { environment.commands() }
+
     func commit() {
+        pending?.invalidate()
+        pending = nil
         environment.save(config)
+    }
+
+    private var pending: Timer?
+
+    /// What the text fields call. A save rewrites the file, re-registers every global
+    /// shortcut and rebuilds the preset menu, and a name typed into a field would do all
+    /// of that per character. Buttons and toggles still commit outright: one click is one
+    /// change, and there is nothing to wait for.
+    func commitSoon() {
+        pending?.invalidate()
+        pending = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.commit() }
+        }
+    }
+
+    /// Closing the window mid-word must not lose the word.
+    func flush() {
+        guard pending != nil else { return }
+        commit()
     }
 
     func setFollowsFocus(_ on: Bool) {
@@ -292,6 +357,7 @@ struct SettingsView: View {
         case shortcuts = "Shortcuts"
         case follow = "Follow"
         case captures = "Captures"
+        case automation = "Automation"
         case plugins = "Plugins"
         case about = "About"
         var id: String { rawValue }
@@ -303,6 +369,7 @@ struct SettingsView: View {
             case .shortcuts: return "keyboard"
             case .follow: return "dot.viewfinder"
             case .captures: return "photo.on.rectangle"
+            case .automation: return "lock.shield"
             case .plugins: return "puzzlepiece.extension"
             case .about: return "info.circle"
             }
@@ -349,6 +416,7 @@ struct SettingsView: View {
         case .shortcuts: ShortcutsTab(model: model)
         case .follow: FollowTab(model: model)
         case .captures: CapturesTab(model: model)
+        case .automation: AutomationTab(model: model)
         case .plugins: PluginsTab(model: model)
         case .about: AboutTab(model: model)
         }
@@ -372,7 +440,7 @@ private struct PresetsTab: View {
                 ForEach(model.config.presets.indices, id: \.self) { index in
                     PresetRow(preset: Binding(get: { model.config.presets[index] },
                                               set: { model.config.presets[index] = $0
-                                                     model.commit() }))
+                                                     model.commitSoon() }))
                         .tag(index)
                 }
             }
@@ -394,8 +462,8 @@ private struct PresetsTab: View {
     }
 }
 
-/// One editable preset. Every keystroke writes the file: it is a few hundred bytes
-/// written atomically, and the alternative is edits that vanish when the window closes.
+/// One editable preset. Typing writes the file shortly after you stop, and closing the
+/// window writes it at once: there is no Save button to forget, and no rewrite per key.
 private struct PresetRow: View {
     @Binding var preset: Config.Preset
 
@@ -696,7 +764,7 @@ private struct FollowTab: View {
                         TextField("App name or bundle id",
                                   text: Binding(get: { model.config.followIgnores[index] },
                                                 set: { model.config.followIgnores[index] = $0
-                                                       model.commit() }))
+                                                       model.commitSoon() }))
                             .textFieldStyle(.roundedBorder)
                         Button {
                             model.removeFollowIgnores(IndexSet(integer: index))
@@ -791,6 +859,159 @@ private struct CapturesTab: View {
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         model.setFolder(url.path, screenshots: screenshots)
+    }
+}
+
+/// Who is allowed to drive the app over `virtualdisplay://`, which is the one door into
+/// this app that something other than the user can knock on.
+private struct AutomationTab: View {
+    @ObservedObject var model: SettingsModel
+
+    private var guarded: [(name: String, summary: String)] { model.commandCatalog }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Anything that can open a URL can send commands to Virtual Display, a web "
+                 + "page included, and the browser prompt in front of it does not say what "
+                 + "the command does. So every command arriving that way is held until you "
+                 + "have vouched for it, with the token below or by answering for it. Each "
+                 + "command can also be set outright, whichever way the switch is set. The "
+                 + "menu, the shortcuts and your plugins are unaffected.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Require a token for commands sent as URLs",
+                   isOn: Binding(get: { model.automation.requiresToken },
+                                 set: { model.setRequiresToken($0) }))
+                .toggleStyle(.switch)
+
+            token
+
+            Divider()
+
+            permissions
+            Spacer()
+        }
+    }
+
+    /// Shown in full: it guards nothing on its own screen, and a token you cannot read is
+    /// a token you cannot put in a script.
+    @ViewBuilder private var token: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(model.automation.token)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Button("Copy URL") {
+                    let example = "virtualdisplay://screenshot?token=\(model.automation.token)"
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(example, forType: .string)
+                }
+                .help("Copies a working example: virtualdisplay://screenshot?token=...")
+                Button("Regenerate") { model.regenerateToken() }
+                    .help("Every script using the old token stops working")
+            }
+            Text("Add it to the URL as token=... . Regenerate it if it has been somewhere "
+                 + "it should not: a URL ends up in shell history and browser logs.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .disabled(!model.automation.requiresToken)
+        .opacity(model.automation.requiresToken ? 1 : 0.5)
+    }
+
+    /// The other half of the switch: with no token required, each guarded command is
+    /// asked about once and the answer lives here, where it can be taken back.
+    @ViewBuilder private var permissions: some View {
+        HStack {
+            Text(model.automation.requiresToken
+                 ? "The token is required for every command here except the ones set to "
+                   + "Accept without token. Deny refuses however good the token is, which "
+                   + "is what still protects you if one leaks."
+                 : "Default asks the first time a URL calls a command and keeps the answer "
+                   + "here. With no token being required, Allow and Accept without token "
+                   + "come to the same thing.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button("Reset All") { model.forgetRules() }
+                .help("Every command back to Default")
+                .disabled(model.automation.rules.isEmpty)
+        }
+
+        List {
+            ForEach(guarded, id: \.name) { command in
+                HStack {
+                    Text(command.name).font(.system(.body, design: .monospaced))
+                    // The summary the command was registered with, rather than a second
+                    // description to keep in step. Thirty of them inline would bury the
+                    // list, so they are a tooltip.
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.tertiary)
+                        .help(command.summary)
+                    Spacer()
+                    Picker("", selection: Binding(
+                        get: { Answer(model.automation.rules[command.name]) },
+                        set: { model.setRule(command.name, $0.rule) })) {
+                        ForEach(Answer.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                .help(command.summary)
+                .padding(.vertical, 1)
+            }
+        }
+        .border(.separator)
+        .frame(minHeight: 120)
+    }
+
+    /// The rules, plus the absence of one. A picker needs a case for "unset", which
+    /// `AutomationPolicy.Rule` deliberately does not have: there, absent is `nil`.
+    private enum Answer: String, CaseIterable, Identifiable {
+        case byDefault
+        case deny
+        case alwaysAsk
+        case askOnce
+        case allow
+        case acceptWithoutToken
+
+        var id: String { rawValue }
+
+        init(_ rule: AutomationPolicy.Rule?) {
+            switch rule {
+            case .deny: self = .deny
+            case .alwaysAsk: self = .alwaysAsk
+            case .askOnce: self = .askOnce
+            case .allow: self = .allow
+            case .acceptWithoutToken: self = .acceptWithoutToken
+            case nil: self = .byDefault
+            }
+        }
+
+        var rule: AutomationPolicy.Rule? {
+            switch self {
+            case .byDefault: return nil
+            case .deny: return .deny
+            case .alwaysAsk: return .alwaysAsk
+            case .askOnce: return .askOnce
+            case .allow: return .allow
+            case .acceptWithoutToken: return .acceptWithoutToken
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .byDefault: return "Default"
+            case .deny: return "Deny"
+            case .alwaysAsk: return "Always ask"
+            case .askOnce: return "Ask once"
+            case .allow: return "Allow"
+            case .acceptWithoutToken: return "Accept without token"
+            }
+        }
     }
 }
 

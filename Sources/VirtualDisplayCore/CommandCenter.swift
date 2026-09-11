@@ -30,6 +30,14 @@ public final class CommandCenter {
 
         public subscript(key: String) -> String? { raw[key] }
         public var isEmpty: Bool { raw.isEmpty }
+
+        /// For arguments that belong to the caller rather than the command: the
+        /// automation token is checked and dropped before anything runs.
+        public func removing(_ key: String) -> Arguments {
+            var pairs = raw
+            pairs[key] = nil
+            return Arguments(pairs)
+        }
         /// For handing a whole call on to something that speaks pairs, such as a plugin.
         public var all: [String: String] { raw }
 
@@ -111,16 +119,28 @@ public final class CommandCenter {
 
     public var names: [String] { commands.keys.sorted() }
 
+    /// Every command with the one line it was registered with. The settings list shows
+    /// these, so what a command claims to do is written once, next to what it does.
+    public var catalog: [(name: String, summary: String)] {
+        names.map { ($0, commands[$0]?.summary ?? "") }
+    }
+
     /// `name - summary` per line: what the `commands` command returns, and the only
     /// documentation of the URL scheme that cannot go stale.
     public func listing() -> String {
         names.map { "\($0) - \(commands[$0]?.summary ?? "")" }.joined(separator: "\n")
     }
 
+    /// A URL taken apart, before anything is run. Split out from `perform(url:)` so a
+    /// caller can see which command is being asked for and decide whether to allow it.
+    public struct Call {
+        public let name: String
+        public let arguments: Arguments
+    }
+
     /// `virtualdisplay://set-size?width=1280&height=720`. The host is the command name, so
     /// anything that can shell out to `open` is an automation client.
-    @discardableResult
-    public func perform(url: URL) throws -> String? {
+    public static func parse(url: URL) -> Call {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         // Falls back to the path so both virtualdisplay://name and virtualdisplay:///name
         // work; the second is what some URL builders produce.
@@ -128,6 +148,12 @@ public final class CommandCenter {
         let path = (components?.path ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         var pairs: [String: String] = [:]
         for item in components?.queryItems ?? [] { pairs[item.name] = item.value ?? "" }
-        return try perform(name.isEmpty ? path : name, Arguments(pairs))
+        return Call(name: name.isEmpty ? path : name, arguments: Arguments(pairs))
+    }
+
+    @discardableResult
+    public func perform(url: URL) throws -> String? {
+        let call = Self.parse(url: url)
+        return try perform(call.name, call.arguments)
     }
 }
