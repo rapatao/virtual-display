@@ -109,6 +109,8 @@ unit tested; an executable target cannot be imported by a test target.
 | `Sources/VirtualDisplayCore/Overlay.swift` | Text, images and rectangles drawn over the shared window |
 | `Sources/VirtualDisplayCore/HUD.swift` | The one-second confirmation a global shortcut leaves on screen |
 | `Sources/VirtualDisplayCore/Fetch.swift` | The one outbound HTTP path, for `vd.fetch` |
+| `Sources/VirtualDisplayCore/UpdateCheck.swift` | The manual "is there a newer release" check behind the About tab |
+| `Sources/VirtualDisplayCore/Automation.swift` | Who may drive the app over `virtualdisplay://`: the token and the per-command settings |
 | `Sources/VirtualDisplayCore/Recording.swift` | Screenshots and `.mov` recording of the shared window |
 | `Sources/VirtualDisplayCore/SettingsWindow.swift` | The settings window; writes `config.json` |
 | `Sources/CLua/` | Lua 5.4.8, vendored verbatim. See its `README.md` |
@@ -149,7 +151,9 @@ follows the content filter, and the filter is this app's own silent window.
 ## Adding things
 
 - **An action**: one `commands.register(...)` call in `AppCoordinator.registerCommands()`.
-  It is then reachable from the menu, a shortcut, a URL and a plugin at once.
+  It is then reachable from the menu, a shortcut, a URL and a plugin at once, and the
+  summary passed here is what the Automation tab shows for it. Reaching it by URL goes
+  through `AutomationPolicy` like every other command, with no work at the call site.
 - **A menu item**: one `ActionMenuItem("Title") { ... }` in `StatusMenu`, calling a command.
   No selector, no `@objc` method elsewhere.
 - **A visibility rule**: a derived property on `AppState`, used by `render()`, covered by

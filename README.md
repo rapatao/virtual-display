@@ -9,9 +9,9 @@ an arbitrary rectangle. Virtual Display supplies the missing rectangle, as an or
 window that all of them can share. Zoom has **Share > Advanced > Portion of Screen** built
 in, which covers a one-off share inside Zoom.
 
-Beyond the rectangle: [presets](#region-presets) you can switch by name,
-[global shortcuts](#keyboard-shortcuts), a [URL scheme](#commands-and-the-url-scheme) that
-drives every command from a script or a Stream Deck, [screenshots and
+Beyond the rectangle: [presets](#region-presets) you can switch by name, [global
+shortcuts](#keyboard-shortcuts), a [token-gated URL scheme](#commands-and-the-url-scheme)
+that drives every command from a script or a Stream Deck, [screenshots and
 recording](#screenshots-and-recording) of exactly what the meeting sees, and [Lua
 plugins](#lua-plugins) that add commands, menu items and overlays.
 
@@ -84,7 +84,11 @@ presence; turn mirroring off and it goes back to tray-only.
 | **Region spans two displays** | A warning, not a command. Only visible when the region lies across two screens, which capture cannot do. |
 | **Show Cursor in Share** | Whether your pointer appears in what you share. |
 | **Launch at Login** | Registers the app with macOS via `SMAppService`. |
+| **Take Screenshot** / **Copy Screenshot** | A PNG of the shared window, to a file or the clipboard. Greyed out unless there is a picture to take, see below. |
+| **Start Recording** / **Stop Recording** | Records the shared window to a `.mov`. `Ctrl Opt Cmd R`. |
+| **Settings...** | The settings window. `Cmd ,`. |
 | **Copy Diagnostics** | Copies a report on screen state to the clipboard and displays it. Same output as `--doctor`. |
+| **Enable Plugins** / **Reload Plugins** | The [plugin](#lua-plugins) switch, off until you turn it on, and a re-read of the folder. |
 | **About Virtual Display...** | Version, license, and a **Check for Updates** button. |
 | **Quit Virtual Display** | `Cmd Q` |
 
@@ -123,9 +127,11 @@ starts. System audio is not recorded: ScreenCaptureKit ties audio to the thing b
 captured, and that is this app's own silent window. If the microphone cannot be opened the
 picture is still recorded, and the HUD says the sound is missing.
 
-Both need the output window on screen, so both are greyed out unless mirroring is on. While
-paused they still work, on the frozen picture. The menu bar icon becomes a record dot while
-recording, since that is the state you must not forget about.
+Both need the output window on screen, so both are greyed out unless mirroring is on. A
+pause greys them out too, because the share is blank while it is on and a picture of that
+is worth nothing - unless **Freeze the last frame when paused** is set, which leaves a real
+picture up and keeps both available. The menu bar icon becomes a record dot while recording,
+since that is the state you must not forget about.
 
 From a script or a plugin, with an optional destination:
 
@@ -135,6 +141,10 @@ open 'virtualdisplay://screenshot?clipboard=true'
 open 'virtualdisplay://start-recording?path=~/Desktop/demo.mov&mic=true'
 open 'virtualdisplay://stop-recording'
 ```
+
+> Sent as URLs these need `token=` from **Settings... > Automation**, or an answer to
+> the prompt if you turned the token requirement off. See
+> [The automation token](#the-automation-token).
 
 A recording is finalised when you stop it, when mirroring is turned off, when capture
 fails, and when the app quits - an unfinalised `.mov` will not play, so quitting waits for
@@ -205,7 +215,8 @@ timer only runs while following is actually on.
 Some apps should never drag the region onto the call: the meeting app itself, a password
 manager, a terminal with secrets in the scrollback. **Settings... > Follow** holds the
 list; **Add App** picks from what is running, rows can be edited by hand for an app that is
-not, and each row removes itself with the button beside it. Follow mode skips those apps, leaving the region on whatever it followed last.
+not, and each row removes itself with the button beside it. Follow mode skips those apps,
+leaving the region on whatever it followed last.
 
 The same list in `config.json`, for a machine you set up from a file:
 
@@ -226,8 +237,8 @@ be turned on or off from a shortcut or a script like anything else
 
 ## Customising without a new release
 
-Three levels, in order of how much you need. All of them live outside the app bundle, so
-none of them survives only until the next upgrade, and none of them needs a rebuild.
+In order of how much you need. All of them live outside the app bundle, so an upgrade
+leaves them alone and none of them needs a rebuild.
 
 | Want | Use | Where |
 | --- | --- | --- |
@@ -250,6 +261,7 @@ none of them survives only until the next upgrade, and none of them needs a rebu
 | Shortcuts | Click a shortcut, press the keys. Escape cancels, Delete clears. Recording one for an action replaces its default, and the menu updates to match |
 | Follow | The Follow Focused Window switch, and the list of apps it leaves alone. **Add App** picks from what is running, so the name is spelled the way the matcher expects; each row has its own remove button |
 | Captures | Where screenshots and recordings are written, or **Default** for the system folders, and whether recordings carry microphone audio |
+| Automation | Who may drive the app over `virtualdisplay://`: the [token](#the-automation-token), whether it is required, and a rule per command - Deny, Always ask, Ask once, Allow, or Accept without token |
 | Plugins | The plugin switch, the folder, a reload button, every `.lua` file in it with its own switch, and any load errors |
 | About | Version, copyright, links to the repository and the bundled licence, and **Check for Updates** |
 
@@ -260,10 +272,14 @@ one, otherwise Carbon would run the action instead of capturing the keys.
 There is no Save button: every change is written to `config.json` immediately and applied
 without a relaunch. The window and the file are the same settings, so hand-editing still
 works - though a save rewrites the file whole, dropping any key this version does not know
-about. After hand-editing, `open 'virtualdisplay://reload-config'` applies the file
-without a relaunch, and refreshes the settings window if it is open.
+about. After hand-editing, `open 'virtualdisplay://reload-config'` applies the file without
+a relaunch, and refreshes the settings window if it is open.
 
 `open 'virtualdisplay://settings?tab=shortcuts'` opens it on a particular section.
+
+> Sent as URLs these need `token=` from **Settings... > Automation**, or an answer to
+> the prompt if you turned the token requirement off. See
+> [The automation token](#the-automation-token).
 
 **Check for Updates** asks GitHub for the latest release and compares it with the running
 version, only when you press it: there is no background check and nothing is sent. A newer
@@ -331,6 +347,11 @@ open 'virtualdisplay://set-size?width=1280&height=720'
 open 'virtualdisplay://set-region?x=100&y=100&w=960&h=540'
 ```
 
+> Every command below is gated when it arrives as a URL: by default it needs `token=` from
+> **Settings... > Automation**, which is what stops a web page driving the app. The same
+> commands from the menu, a shortcut or a plugin are not gated. See
+> [The automation token](#the-automation-token).
+
 | Command | Arguments |
 | --- | --- |
 | `toggle-mirroring`, `set-mirroring` | `on=true\|false` |
@@ -357,10 +378,73 @@ open 'virtualdisplay://set-region?x=100&y=100&w=960&h=540'
 The menu, the global shortcuts, the URL scheme and the plugins all dispatch through this
 one table, so a command can never do one thing from the menu and another from a script.
 
+#### The automation token
+
+Anything that can open a URL can send these commands, a web page included, and the only
+thing in front of it is the browser's own "Open Virtual Display?" prompt - which does not
+mention that answering yes may start a screen recording. So **every** command sent as a URL
+is guarded, including the ones that look harmless: a page that can move the region can park
+it over something private and leave it there.
+
+By default a command sent as a URL needs the token from **Settings... > Automation**:
+
+```sh
+open 'virtualdisplay://screenshot?token=YOUR-TOKEN'
+open 'virtualdisplay://set-size?name=1280&token=YOUR-TOKEN'
+```
+
+**Copy URL** there puts a working example on the clipboard, and **Regenerate** replaces the
+token if it has been somewhere it should not - a URL ends up in shell history and browser
+logs. Every script using the old one stops working. The token is stripped before the
+command runs, so no command sees it.
+
+Turn **Require a token** off and commands instead ask, once each, the first time a URL
+calls one. Answering **Don't Allow** in that dialog is remembered too, so an unwanted URL
+only interrupts once.
+
+Underneath, every command has its own rule, and it holds whichever way the switch is set:
+
+| Rule | Require a token **on** | Require a token **off** |
+| --- | --- | --- |
+| **Default** | needs the token | asks once, keeps the answer |
+| **Deny** | refused, however good the token | refused |
+| **Always ask** | needs the token, then asks every time | asks every time |
+| **Ask once** | needs the token, then asks until answered | asks until answered |
+| **Allow** | needs the token, then runs | runs |
+| **Accept without token** | runs, no token | runs |
+
+These are two separate layers and both have to be satisfied. The token **authenticates**
+the caller: it says the URL came from something you set up rather than from a page you
+happened to visit. The rule **authorises** the command: it says whether that caller may run
+this particular one. A right token is never permission - a command set to **Deny** is
+refused while carrying a perfect token, because the question the token answers is not the
+question the rule answers.
+
+While **Require a token** is on, the token is required for every command except the ones
+explicitly set to **Accept without token**. That is the only waiver, and it has to be asked
+for by name: **Allow** means "do not ask me about this one", not "let anyone in".
+
+**Deny** is what a token cannot do on its own: tokens end up in shell history, in a
+dotfiles repo, in a screenshot of the window that shows them, and a command set to Deny is
+still refused after one leaks. Set the commands you never script to Deny and a stolen token
+is worth very little.
+
+**Always ask** never remembers, so its dialog offers only **Don't Allow** and **Allow
+Once** - a button that quietly stopped the asking would be disobeying the setting.
+
+**Reset All** puts every command back to Default.
+
+A refused command shows a `Blocked: <command>` HUD rather than failing silently.
+
+None of this applies to the menu, the global shortcuts, a `hotkeys` entry in
+`config.json`, or a Lua plugin. Those are already you - so a locked-out script is never
+locked out of the app itself, which is still one menu click away.
+
 ### Lua plugins
 
 **Plugins are off until you turn them on**: tick **Enable Plugins** in the menu, or run
-`open 'virtualdisplay://set-plugins?on=true'`. Then every `.lua` file in
+`open 'virtualdisplay://set-plugins?on=true'` (as a URL, with `token=`). Then every
+`.lua` file in
 `~/.config/virtual-display/plugins/` runs at launch, in filename order, against one shared
 Lua 5.4 interpreter. **Reload Plugins** re-reads them without restarting the app; turning
 the toggle off again unregisters everything they added.
@@ -385,7 +469,7 @@ process can rewrite must not be loaded.
 | Call | Does |
 | --- | --- |
 | `vd.command(name, args)` | Runs any command. Returns its result, or `nil, message` |
-| `vd.register(name, fn)` | Adds a command, reachable from `virtualdisplay://` too |
+| `vd.register(name, fn)` | Adds a command, reachable from `virtualdisplay://` too, and listed in Settings > Automation like any other |
 | `vd.on(event, fn)` | `mirroring`, `pause`, `edit_region`, `follow_focus`, `region_moved`, `capture_failed`, `menu_will_open` |
 | `vd.hotkey(spec, fn)` | Global shortcut, same spec format as the config file |
 | `vd.menu(title, fn)` | Adds a menu bar item |
@@ -501,7 +585,8 @@ frame, an alert, the settings window nor the shortcut HUD ever appears in what y
 
 **The output window is not optional and is managed for you.** It opens when mirroring is
 enabled and closes when mirroring is disabled, because it is the only thing a meeting can
-actually share. Resize it freely; it stays 16:9 and may be left behind other windows.
+actually share. Resize it freely; it keeps the [output canvas](#output-size)'s shape - 16:9
+unless you changed it - and may be left behind other windows.
 
 **The output window has no title bar.** Picture edge to edge, so what the meeting sees
 looks like a display rather than a window. It still *has* a title, "Virtual Display":
@@ -525,7 +610,8 @@ it or mirroring is live, so the region can be positioned before a call starts.
 
 **A shortcut leaves a HUD on screen.** Global shortcuts fire while another app is focused,
 where the menu bar icon is the only other feedback. Mirroring, pause, recording, following
-and a screenshot each put a line of text low on the screen for a second. It is excluded
+and a screenshot each put a line of text low on the screen for a second, as does a URL the
+[automation gate](#the-automation-token) refused. It is excluded
 from capture like every other window of this app, so the meeting never sees it.
 
 **Recurring permission prompt.** macOS periodically shows "requesting to bypass the system
@@ -549,6 +635,11 @@ Stored in `UserDefaults` under `com.rapatao.virtual-display`:
 | `lockAspect` | Lock Region Aspect toggle. Absent means off |
 | `didRequestScreenRecordingAccess` | Whether the system permission prompt has been shown |
 | `enablePlugins` | Enable Plugins toggle. Absent means off |
+| `requireAutomationToken` | The [token requirement](#the-automation-token). Absent means on |
+| `automationToken` | The token itself, made the first time it is needed |
+| `automationGrants` | The per-command rule by name (`deny`, `alwaysAsk`, `askOnce`, `allow`, `acceptWithoutToken`); absent means Default |
+
+Deleting the domain regenerates the token, so scripts carrying the old one stop working.
 
 Mirroring and pause are deliberately **not** persisted; the app always starts with capture
 off and unpaused. Launch at Login lives in macOS, not here, so `defaults delete` will not
@@ -567,8 +658,14 @@ defaults delete com.rapatao.virtual-display
 
 **A shortcut does nothing.** **Copy Diagnostics** ends with a `shortcuts:` section listing
 every shortcut as `active` or `TAKEN by another app`. Carbon hands a combination to
-whoever registered it first, so another app holding it means ours never fires. Rebind it
-in `config.json`.
+whoever registered it first, so another app holding it means ours never fires. Rebind it in
+**Settings... > Shortcuts**, or in `config.json`.
+
+**A `virtualdisplay://` URL does nothing, or a `Blocked:` HUD appears.** Commands sent as
+URLs need the [automation token](#the-automation-token), or an answer to the dialog if you
+turned the token requirement off. Add `token=` from **Settings... > Automation**, or check
+that the command is not set to **Deny** there. Scripts written before this existed are
+exactly what it stops, so they need the token appended once.
 
 **Asked for permission repeatedly.** Ad-hoc signing: the grant is pinned to the binary's
 hash, so every build asks again. See [Signing](DEVELOPMENT.md#signing).

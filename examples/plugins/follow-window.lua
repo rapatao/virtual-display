@@ -43,7 +43,8 @@ end)
 vd.menu("Follow " .. APP, function() setFollowing(not following) end)
 vd.hotkey("ctrl-opt-cmd-f", function() setFollowing(not following) end)
 
--- Also reachable as: open 'virtualdisplay://follow?on=true'
+-- Also reachable as: open 'virtualdisplay://follow?on=true&token=YOUR-TOKEN'
+-- (the token comes from Settings > Automation; commands sent as URLs are gated)
 vd.register("follow", function(args)
     setFollowing(args.on ~= "false")
     return tostring(following)
