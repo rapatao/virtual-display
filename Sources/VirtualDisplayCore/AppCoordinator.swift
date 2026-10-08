@@ -65,7 +65,6 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         CaptureFiles.screenshotFolder = config.captures?.screenshots
         CaptureFiles.recordingFolder = config.captures?.recordings
         OutputCanvas.size = config.canvasSize
-        outputWindow.canvasChanged()
 
         state.hasScreenRecordingAccess = ScreenRecordingPermission.isGranted
         state.isEditingRegion = Preferences.isEditingRegion
@@ -772,6 +771,8 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         setVisible(regionWindow, state.showsRegionWindow)
         // orderFront, never makeKeyAndOrderFront: the output window must not steal focus
         // from whatever you are about to drag into the region.
+        // Back to 1:1 on every start: a window left resized smaller is shared blurred.
+        if state.showsOutputWindow, !outputWindow.isVisible { outputWindow.canvasChanged() }
         setVisible(outputWindow, state.showsOutputWindow)
 
         setFollowing(state.isFollowingFocus)
