@@ -22,7 +22,11 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     private var pluginPresets: [RegionSize] = []
 
     private let regionWindow = RegionWindow()
-    private let outputWindow = OutputWindow()
+    private let sink = VideoSink()
+    private let overlay = OverlayView()
+    /// Exists only while mirroring. A share picker ends a window share when the window is
+    /// destroyed, not when it is merely hidden.
+    private var outputWindow: OutputWindow?
     /// Feedback for the global shortcuts, which fire with another app focused.
     private lazy var hud = HUDWindow()
     private var capture: CaptureController!
@@ -35,7 +39,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             source: CaptureController.Source(
                 regionFrame: { [regionWindow] in regionWindow.frame },
                 regionScreen: { [regionWindow] in regionWindow.screen }),
-            sink: outputWindow.sink)
+            sink: sink)
 
         capture.onFailure = { [weak self] error in self?.captureFailed(error) }
         // The recording stream died on its own; the menu must stop claiming to record.
@@ -258,16 +262,16 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
                           + "plus x= y= w= h= size= color= background= align= alpha= z=") { [weak self] args in
             guard let self else { return nil }
             let id = try args.string("id")
-            outputWindow.overlay.set(id, try OverlayItem(args))
+            overlay.set(id, try OverlayItem(args))
             return nil
         }
         commands.register("clear-overlay", "Remove one overlay: id=") { [weak self] args in
             guard let self else { return nil }
-            outputWindow.overlay.set(try args.string("id"), nil)
+            overlay.set(try args.string("id"), nil)
             return nil
         }
         commands.register("clear-overlays", "Remove every overlay",
-                          action: { [weak self] in self?.outputWindow.overlay.removeAll() })
+                          action: { [weak self] in self?.overlay.removeAll() })
 
         commands.register("screenshot",
                           "Save a PNG of the shared window: path= (optional), "
@@ -321,7 +325,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     /// Both grab the output window, which only exists while mirroring does, and holds
     /// nothing but black while a blanking pause is on.
     private func shareableWindowNumber() throws -> Int {
-        guard state.showsOutputWindow else { throw CaptureFailure.windowGone }
+        guard state.showsOutputWindow, let outputWindow else { throw CaptureFailure.windowGone }
         guard state.canCaptureOutput else { throw CaptureFailure.paused }
         return outputWindow.windowNumber
     }
@@ -456,7 +460,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         // when it is locked to the canvas.
         if config.canvasSize != OutputCanvas.size {
             OutputCanvas.size = config.canvasSize
-            outputWindow.canvasChanged()
+            outputWindow?.canvasChanged()
             capture.canvasChanged()
         }
 
@@ -535,7 +539,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         lua.unload()
         commands.removeAll(owner: .plugin)
         HotKeyCenter.shared.unregister(owner: .plugin)
-        outputWindow.overlay.removeAll()
+        overlay.removeAll()
         pluginMenuItems = []
         pluginPresets = []
         menu?.setPluginItems([])
@@ -772,8 +776,19 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         // orderFront, never makeKeyAndOrderFront: the output window must not steal focus
         // from whatever you are about to drag into the region.
         // Back to 1:1 on every start: a window left resized smaller is shared blurred.
-        if state.showsOutputWindow, !outputWindow.isVisible { outputWindow.canvasChanged() }
-        setVisible(outputWindow, state.showsOutputWindow)
+        if state.showsOutputWindow {
+            if let outputWindow {
+                outputWindow.contentView?.isHidden = false
+                outputWindow.orderFront(nil)
+            } else {
+                let window = OutputWindow(sink: sink, overlay: overlay)
+                window.canvasChanged()
+                window.orderFront(nil)
+                outputWindow = window
+            }
+        } else if outputWindow?.contentView?.isHidden == false {
+            blankThenCloseOutputWindow()
+        }
 
         setFollowing(state.isFollowingFocus)
 
@@ -791,6 +806,17 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
 
     private func setVisible(_ window: NSWindow, _ visible: Bool) {
         if visible { window.orderFront(nil) } else { window.orderOut(nil) }
+    }
+
+    /// A meeting keeps showing the last frame it captured from a window that disappears,
+    /// so the window has to be seen black before it goes.
+    private func blankThenCloseOutputWindow() {
+        outputWindow?.contentView?.isHidden = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, !state.showsOutputWindow else { return }
+            outputWindow?.close()
+            outputWindow = nil
+        }
     }
 
     // MARK: Actions

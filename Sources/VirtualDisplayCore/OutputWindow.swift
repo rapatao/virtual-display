@@ -29,12 +29,14 @@ public final class VideoSink: @unchecked Sendable {
 /// The window a meeting actually shares. Its title is what appears in the picker.
 @MainActor
 public final class OutputWindow: NSWindow {
-    public let sink = VideoSink()
+    public let sink: VideoSink
     /// Whatever plugins drew on top. It lives in this window because this window is what
     /// the meeting shares: no compositing into the capture pipeline is needed.
-    public let overlay = OverlayView()
+    public let overlay: OverlayView
 
-    public init() {
+    init(sink: VideoSink = VideoSink(), overlay: OverlayView = OverlayView()) {
+        self.sink = sink
+        self.overlay = overlay
         // Placeholder size: canvasChanged sets the real one once the canvas is known.
         //
         // No .miniaturizable: a minimised window reports onscreen=false and drops
