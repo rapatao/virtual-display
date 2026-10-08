@@ -66,8 +66,10 @@ presence; turn mirroring off and it goes back to tray-only.
 3. Turn **Edit Region** off. The frame turns green and becomes click-through, so windows
    underneath stay usable.
 4. In your meeting pick Share > **Window** > **Virtual Display**. The output window opens
-   automatically with mirroring; it is small on purpose and can sit behind everything
-   else, but it must stay on screen and must not be minimised.
+   automatically with mirroring. It can sit behind everything else or be dragged mostly
+   off the edge of the display, and the meeting still gets the full picture; keep some of
+   it on screen and never minimise it. **Settings > Output > Open the output window off
+   screen** does that for you, leaving only a corner showing at the bottom right.
 5. Drag any window into the region. It is now on the call.
 
 ### Menu reference
@@ -257,7 +259,7 @@ leaves them alone and none of them needs a rebuild.
 | Section | Does |
 | --- | --- |
 | Presets | Type a name and a size, or **Add Current Size** / **Add Current Region** to capture the region as it is now, with or without its position. Rows are editable in place |
-| Output | The [output size](#output-size), the [aspect lock](#aspect-lock), and whether pause freezes the last frame or blanks it |
+| Output | The [output size](#output-size), the [aspect lock](#aspect-lock), whether pause freezes the last frame or blanks it, and whether the output window opens off screen |
 | Shortcuts | Click a shortcut, press the keys. Escape cancels, Delete clears. Recording one for an action replaces its default, and the menu updates to match |
 | Follow | The Follow Focused Window switch, and the list of apps it leaves alone. **Add App** picks from what is running, so the name is spelled the way the matcher expects; each row has its own remove button |
 | Captures | Where screenshots and recordings are written, or **Default** for the system folders, and whether recordings carry microphone audio |
@@ -720,8 +722,8 @@ Common causes:
 
 - It is a **window**, not a display. In Meet, Zoom or Slack, pick the **Window** tab. It
   will never appear under Entire Screen / Display.
-- The output window must be **on screen** to be listed at all, and it only exists while
-  **Mirroring** is on. Enable mirroring, then reopen the share picker.
+- The output window must be at least partly **on screen** to be listed at all, and it
+  only exists while **Mirroring** is on. Enable mirroring, then reopen the share picker.
 - Never minimise it. macOS only enumerates on-screen windows, and a minimised one is not
   one.
 

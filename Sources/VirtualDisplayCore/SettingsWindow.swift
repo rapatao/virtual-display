@@ -509,6 +509,7 @@ private struct OptionalNumberField: View {
 /// rendered at, and what a pause leaves on screen.
 private struct OutputTab: View {
     @ObservedObject var model: SettingsModel
+    @AppStorage(Preferences.Key.parkOutputWindow.rawValue) private var parksOutputWindow = false
 
     /// The sizes offered. A hand-edited `output` outside this list is added to it, so the
     /// picker always has the current value to select.
@@ -576,6 +577,17 @@ private struct OutputTab: View {
             Text("Pause blanks the share by default, which is unmistakably a pause. "
                  + "Frozen, the meeting keeps seeing the last frame, which is tidier and "
                  + "easier to mistake for a live picture.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            Toggle("Open the output window off screen", isOn: $parksOutputWindow)
+                .toggleStyle(.switch)
+            Text("Mirroring opens the output window past the bottom-right corner of the "
+                 + "screen with only a corner showing, which is all a share picker needs. "
+                 + "The meeting still gets the whole picture. Takes effect the next time "
+                 + "mirroring starts.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()

@@ -85,22 +85,41 @@ public final class OutputWindow: NSWindow {
         setFrameAutosaveName("OutputWindow")
     }
 
+    /// How much of a parked window stays on the display, in points: enough to be listed by
+    /// a share picker and to grab and drag back.
+    static let parkedVisible: CGFloat = 40
+
     /// Adopts the current canvas at 1:1: one canvas pixel per backing pixel. A meeting
     /// captures the window's pixels, so any smaller window is shared upscaled and blurred.
-    /// Clamped to the visible screen, keeping the canvas's shape, when that is too big.
+    /// Clamped to the visible screen, keeping the canvas's shape, when that is too big,
+    /// unless parked: a parked window is off screen anyway and stays 1:1 at any size.
     public func canvasChanged() {
         let canvas = OutputCanvas.size
         contentAspectRatio = NSSize(width: canvas.width, height: canvas.height)
         let screen = self.screen ?? NSScreen.main
         let scale = screen?.backingScaleFactor ?? 2
         var size = NSSize(width: canvas.width / scale, height: canvas.height / scale)
-        if let visible = screen?.visibleFrame {
+        let parks = Preferences.parksOutputWindow
+        if !parks, let visible = screen?.visibleFrame {
             let fit = min(1, visible.width / size.width, visible.height / size.height)
             size = NSSize(width: (size.width * fit).rounded(.down),
                           height: (size.height * fit).rounded(.down))
         }
         let top = frame.maxY
         setContentSize(size)
-        setFrameTopLeftPoint(NSPoint(x: frame.minX, y: top))
+        if parks, let visible = screen?.visibleFrame {
+            // ponytail: always the bottom-right corner. A display beyond that corner shows
+            // the rest of the window; offer a corner choice if that bites.
+            setFrameTopLeftPoint(NSPoint(x: visible.maxX - Self.parkedVisible,
+                                         y: visible.minY + Self.parkedVisible))
+        } else {
+            setFrameTopLeftPoint(NSPoint(x: frame.minX, y: top))
+        }
+    }
+
+    /// AppKit pulls a titled window back onto the screen when it is shown; a parked one
+    /// has to stay where it was put.
+    public override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        Preferences.parksOutputWindow ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }
 }

@@ -12,6 +12,7 @@ public enum Preferences {
         case followFocus
         case showsCursor
         case lockAspect
+        case parkOutputWindow
         case didRequestScreenRecordingAccess
         case enablePlugins
         case requireAutomationToken
@@ -61,6 +62,14 @@ public enum Preferences {
     public static var locksAspect: Bool {
         get { bool(.lockAspect, default: fallbacks.locksAspect) }
         set { set(newValue, .lockAspect) }
+    }
+
+    /// Opens the output window almost entirely past the screen's bottom-right corner. A
+    /// picker only needs part of a window on a display, and the meeting still receives
+    /// the whole picture.
+    public static var parksOutputWindow: Bool {
+        get { bool(.parkOutputWindow, default: false) }
+        set { set(newValue, .parkOutputWindow) }
     }
 
     /// Off until asked for, and deliberately so. A plugin is arbitrary code running inside

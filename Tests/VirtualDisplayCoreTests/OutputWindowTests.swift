@@ -62,3 +62,29 @@ final class OutputWindowSizeTests: XCTestCase {
         XCTAssertEqual(pixels.height, 180, accuracy: scale)
     }
 }
+
+@MainActor
+final class OutputWindowParkTests: XCTestCase {
+
+    /// A picker drops a window with no part on a display, so a parked one keeps a corner.
+    func testParkedWindowKeepsOnlyACornerOnScreen() throws {
+        let savedCanvas = OutputCanvas.size
+        let savedPark = Preferences.parksOutputWindow
+        defer {
+            OutputCanvas.size = savedCanvas
+            Preferences.parksOutputWindow = savedPark
+        }
+        OutputCanvas.size = CGSize(width: 320, height: 180)
+        Preferences.parksOutputWindow = true
+
+        let window = OutputWindow()
+        window.canvasChanged()
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+
+        let visible = try XCTUnwrap((window.screen ?? NSScreen.main)?.visibleFrame)
+        let onScreen = window.frame.intersection(visible)
+        XCTAssertEqual(onScreen.width, OutputWindow.parkedVisible, accuracy: 1)
+        XCTAssertEqual(onScreen.height, OutputWindow.parkedVisible, accuracy: 1)
+    }
+}
