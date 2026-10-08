@@ -36,8 +36,7 @@ public final class OutputWindow: NSWindow {
     public let overlay = OverlayView()
 
     public init() {
-        // Small by default: it only has to exist for the meeting to have something to
-        // share, and it is still resizable if you want to watch it.
+        // Placeholder size: canvasChanged sets the real one once the canvas is known.
         //
         // No .miniaturizable: a minimised window reports onscreen=false and drops
         // straight out of every share picker, which is measurably the same as not having
@@ -86,14 +85,22 @@ public final class OutputWindow: NSWindow {
         setFrameAutosaveName("OutputWindow")
     }
 
-    /// Adopts the current canvas. The window is built before `config.json` is read, and
-    /// the canvas can change again while it is open.
+    /// Adopts the current canvas at 1:1: one canvas pixel per backing pixel. A meeting
+    /// captures the window's pixels, so any smaller window is shared upscaled and blurred.
+    /// Clamped to the visible screen, keeping the canvas's shape, when that is too big.
     public func canvasChanged() {
-        contentAspectRatio = NSSize(width: OutputCanvas.size.width,
-                                    height: OutputCanvas.size.height)
-        // contentAspectRatio only constrains the next resize, so the current frame is
-        // reshaped here.
-        setContentSize(NSSize(width: frame.width,
-                              height: frame.width * OutputCanvas.size.height / OutputCanvas.size.width))
+        let canvas = OutputCanvas.size
+        contentAspectRatio = NSSize(width: canvas.width, height: canvas.height)
+        let screen = self.screen ?? NSScreen.main
+        let scale = screen?.backingScaleFactor ?? 2
+        var size = NSSize(width: canvas.width / scale, height: canvas.height / scale)
+        if let visible = screen?.visibleFrame {
+            let fit = min(1, visible.width / size.width, visible.height / size.height)
+            size = NSSize(width: (size.width * fit).rounded(.down),
+                          height: (size.height * fit).rounded(.down))
+        }
+        let top = frame.maxY
+        setContentSize(size)
+        setFrameTopLeftPoint(NSPoint(x: frame.minX, y: top))
     }
 }

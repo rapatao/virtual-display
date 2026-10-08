@@ -585,8 +585,11 @@ frame, an alert, the settings window nor the shortcut HUD ever appears in what y
 
 **The output window is not optional and is managed for you.** It opens when mirroring is
 enabled and closes when mirroring is disabled, because it is the only thing a meeting can
-actually share. Resize it freely; it keeps the [output canvas](#output-size)'s shape - 16:9
-unless you changed it - and may be left behind other windows.
+actually share. It opens at 1:1 with the [output canvas](#output-size), one canvas pixel per
+screen pixel (960 x 540 points for 1920x1080 on a Retina display), shrunk to fit if the
+screen is smaller. A meeting shares the window's pixels, not the canvas, so a window made
+smaller than that is shared upscaled and soft. It keeps the canvas's shape - 16:9 unless you
+changed it - and may be left behind other windows.
 
 **The output window has no title bar.** Picture edge to edge, so what the meeting sees
 looks like a display rather than a window. It still *has* a title, "Virtual Display":

@@ -45,3 +45,20 @@ final class OutputWindowTests: XCTestCase {
         XCTAssertTrue(window.styleMask.contains(.resizable))
     }
 }
+
+@MainActor
+final class OutputWindowSizeTests: XCTestCase {
+
+    /// Anything smaller than one canvas pixel per backing pixel is shared upscaled.
+    func testOpensAtOneToOneWithTheCanvas() throws {
+        let saved = OutputCanvas.size
+        defer { OutputCanvas.size = saved }
+        OutputCanvas.size = CGSize(width: 1280, height: 720)
+        let window = OutputWindow()
+        window.canvasChanged()
+        let scale = (window.screen ?? NSScreen.main)?.backingScaleFactor ?? 2
+        let pixels = window.convertToBacking(try XCTUnwrap(window.contentView).bounds).size
+        XCTAssertEqual(pixels.width, 1280, accuracy: scale)
+        XCTAssertEqual(pixels.height, 720, accuracy: scale)
+    }
+}
