@@ -13,8 +13,7 @@ public final class VideoSink: @unchecked Sendable {
         nonisolated(unsafe) let buffer = sampleBuffer
         nonisolated(unsafe) let layer = layer
         DispatchQueue.main.async {
-            // ponytail: deprecated on macOS 15+, still works. Move to
-            // layer.sampleBufferRenderer.enqueue when the deployment target rises.
+            // Deprecated on macOS 15+; layer.sampleBufferRenderer needs that as the target.
             if layer.status == .failed { layer.flush() }
             layer.enqueue(buffer)
         }
@@ -108,8 +107,6 @@ public final class OutputWindow: NSWindow {
         let top = frame.maxY
         setContentSize(size)
         if parks, let visible = screen?.visibleFrame {
-            // ponytail: always the bottom-right corner. A display beyond that corner shows
-            // the rest of the window; offer a corner choice if that bites.
             setFrameTopLeftPoint(NSPoint(x: visible.maxX - Self.parkedVisible,
                                          y: visible.minY + Self.parkedVisible))
         } else {

@@ -890,9 +890,6 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     private var lastRegionSync = Date.distantPast
     /// A drag reports every pixel. Each report costs a ScreenCaptureKit reconfiguration
     /// and a Lua call, so they are coalesced to the frame rate the capture runs at.
-    ///
-    /// ponytail: leading edge so the mirror tracks the drag, trailing edge so where it was
-    /// let go always lands. A fixed 1/30s, because there is nothing to tune it against.
     private static let regionSyncInterval = 1.0 / 30
 
     private func regionChanged() {
@@ -947,10 +944,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     /// Runs only while following, so an app sitting in the menu bar with the toggle off
     /// costs nothing. Started and stopped from `render()` like every other visible effect.
     ///
-    /// ponytail: polling, because macOS has no per-window focus notification outside the
-    /// Accessibility API, and asking for that grant to move a rectangle is a poor trade.
-    /// An `AXObserver` on `kAXFocusedWindowChangedNotification` is the upgrade if 3/s ever
-    /// shows up in a profile.
+    /// Polls: macOS has no per-window focus notification outside the Accessibility API.
     private func setFollowing(_ on: Bool) {
         guard on != (followTimer != nil) else { return }
         followTimer?.invalidate()
