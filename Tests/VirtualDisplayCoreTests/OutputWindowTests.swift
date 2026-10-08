@@ -53,12 +53,12 @@ final class OutputWindowSizeTests: XCTestCase {
     func testOpensAtOneToOneWithTheCanvas() throws {
         let saved = OutputCanvas.size
         defer { OutputCanvas.size = saved }
-        OutputCanvas.size = CGSize(width: 1280, height: 720)
+        OutputCanvas.size = CGSize(width: 320, height: 180)
         let window = OutputWindow()
         window.canvasChanged()
         let scale = (window.screen ?? NSScreen.main)?.backingScaleFactor ?? 2
         let pixels = window.convertToBacking(try XCTUnwrap(window.contentView).bounds).size
-        XCTAssertEqual(pixels.width, 1280, accuracy: scale)
-        XCTAssertEqual(pixels.height, 720, accuracy: scale)
+        XCTAssertEqual(pixels.width, 320, accuracy: scale)
+        XCTAssertEqual(pixels.height, 180, accuracy: scale)
     }
 }
