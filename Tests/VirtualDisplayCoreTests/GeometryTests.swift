@@ -136,3 +136,45 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(size.width / size.height, 16.0 / 9.0, accuracy: 0.0001)
     }
 }
+
+final class ScreenWindowsTests: XCTestCase {
+
+    private func window(_ pid: Int32, _ frame: CGRect, title: String = "") -> ScreenWindow {
+        ScreenWindow(app: "", title: title, pid: pid, frame: frame)
+    }
+
+    private let browser = CGRect(x: 0, y: 400, width: 1200, height: 800)
+
+    func testDropsPopupInsideItsOwnWindow() {
+        let popup = window(1, CGRect(x: 100, y: 1100, width: 600, height: 40))
+        let parent = window(1, browser, title: "Tab")
+        let other = window(2, CGRect(x: 0, y: 0, width: 1600, height: 1000), title: "Other")
+        let kept = ScreenWindows.withoutPopups([popup, parent, other], titlesReadable: false)
+        XCTAssertEqual(kept.map(\.frame), [parent.frame, other.frame])
+    }
+
+    func testDropsUntitledPopupHangingPastItsWindow() {
+        let popup = window(1, CGRect(x: 100, y: 200, width: 600, height: 300))
+        let parent = window(1, browser, title: "Tab")
+        XCTAssertEqual(ScreenWindows.withoutPopups([popup, parent], titlesReadable: true)
+                           .map(\.frame), [parent.frame])
+    }
+
+    func testKeepsTitledWindowOverlappingABiggerOne() {
+        let small = window(1, CGRect(x: 100, y: 200, width: 600, height: 300), title: "Prefs")
+        let parent = window(1, browser, title: "Tab")
+        XCTAssertEqual(ScreenWindows.withoutPopups([small, parent], titlesReadable: true).count, 2)
+    }
+
+    func testKeepsOverlappingWindowWhenTitlesAreUnreadable() {
+        let small = window(1, CGRect(x: 100, y: 200, width: 600, height: 300))
+        let parent = window(1, browser)
+        XCTAssertEqual(ScreenWindows.withoutPopups([small, parent], titlesReadable: false).count, 2)
+    }
+
+    func testKeepsSmallWindowInFrontOfAnotherApp() {
+        let small = window(1, CGRect(x: 100, y: 500, width: 300, height: 200))
+        let big = window(2, browser, title: "Other")
+        XCTAssertEqual(ScreenWindows.withoutPopups([small, big], titlesReadable: true).count, 2)
+    }
+}

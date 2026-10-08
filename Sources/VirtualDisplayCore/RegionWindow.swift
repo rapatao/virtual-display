@@ -168,7 +168,7 @@ public enum ScreenWindows {
         let mine = ProcessInfo.processInfo.processIdentifier
         let listed = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                 kCGNullWindowID) as? [[String: Any]] ?? []
-        return listed.compactMap { w in
+        let windows: [ScreenWindow] = listed.compactMap { w in
             // Layer 0 is an ordinary window; panels and menu bar items sit above it.
             guard (w[kCGWindowLayer as String] as? Int) == 0,
                   let pid = w[kCGWindowOwnerPID as String] as? Int32, pid != mine,
@@ -182,5 +182,24 @@ public enum ScreenWindows {
                 pid: pid,
                 frame: Geometry.appKitRect(fromCG: rect, primaryHeight: primaryHeight))
         }
+        return withoutPopups(windows, titlesReadable: CGPreflightScreenCaptureAccess())
+    }
+
+    /// Drops popups: windows in front of a window of the same app that either lie wholly
+    /// inside it, or are untitled and overlap a bigger one. Popups such as Chrome's address
+    /// bar suggestions are ordinary layer-0 windows listed in front of their parent, so
+    /// without this the front window of the app is the popup. Titles read as empty without
+    /// Screen Recording access, so the untitled rule needs `titlesReadable`, or every small
+    /// window in front of a bigger one would go.
+    static func withoutPopups(_ windows: [ScreenWindow], titlesReadable: Bool) -> [ScreenWindow] {
+        func area(_ r: CGRect) -> CGFloat { r.width * r.height }
+        return windows.enumerated().filter { i, w in
+            !windows[(i + 1)...].contains { parent in
+                guard parent.pid == w.pid else { return false }
+                if parent.frame.contains(w.frame) { return true }
+                return titlesReadable && w.title.isEmpty
+                    && parent.frame.intersects(w.frame) && area(parent.frame) > area(w.frame)
+            }
+        }.map(\.element)
     }
 }
