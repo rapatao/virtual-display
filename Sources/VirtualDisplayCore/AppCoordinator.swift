@@ -21,9 +21,22 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     /// and unloading plugins does.
     private var pluginPresets: [RegionSize] = []
 
-    private let regionWindow = RegionWindow()
+    private let drawing = Drawing()
+    private let regionWindow: RegionWindow
     private let sink = VideoSink()
     private let overlay = OverlayView()
+    /// The strokes again, in the output window, where the meeting sees them.
+    private let outputDrawing: DrawingView
+    private lazy var drawingToolbar: DrawingToolbar = {
+        let toolbar = DrawingToolbar(drawing: drawing)
+        toolbar.onDone = { [weak self] in self?.setDrawing(false) }
+        toolbar.onFinishedTyping = { [weak self] in
+            guard let self else { return }
+            regionWindow.makeKey()
+            regionWindow.makeFirstResponder(regionWindow.drawingView)
+        }
+        return toolbar
+    }()
     /// Exists only while mirroring. A share picker ends a window share when the window is
     /// destroyed, not when it is merely hidden.
     private var outputWindow: OutputWindow?
@@ -33,7 +46,16 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     private var menu: StatusMenu!
 
     public override init() {
+        regionWindow = RegionWindow(drawing: drawing)
+        outputDrawing = DrawingView(drawing: drawing)
         super.init()
+
+        outputDrawing.fitting = { [regionWindow] in [OutputCanvas.size, regionWindow.frame.size] }
+        drawing.onChange = { [regionWindow, outputDrawing] in
+            regionWindow.drawingView.needsDisplay = true
+            outputDrawing.needsDisplay = true
+        }
+        regionWindow.drawingView.onEscape = { [weak self] in self?.setDrawing(false) }
 
         capture = CaptureController(
             source: CaptureController.Source(
@@ -98,6 +120,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         actions.toggleMirroring = { [weak self] in self?.run("toggle-mirroring") }
         actions.togglePause = { [weak self] in self?.run("toggle-pause") }
         actions.toggleEditRegion = { [weak self] in self?.run("toggle-edit-region") }
+        actions.toggleDraw = { [weak self] in self?.run("toggle-draw") }
         actions.toggleFollowFocus = { [weak self] in self?.run("toggle-follow-focus") }
         actions.toggleAspectLock = { [weak self] in self?.run("toggle-aspect-lock") }
         actions.applySize = { [weak self] preset in
@@ -165,6 +188,17 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             setEditing(try args.bool("on"))
             return nil
         }
+        commands.register("toggle-draw", "Draw over the region on or off",
+                          action: { [weak self] in self?.setDrawing(!(self?.state.isDrawing ?? false)) })
+        commands.register("set-draw", "Drawing on or off: on=true|false") { [weak self] args in
+            guard let self else { return nil }
+            setDrawing(try args.bool("on"))
+            return nil
+        }
+        commands.register("undo-drawing", "Remove the last stroke",
+                          action: { [weak self] in self?.drawing.undo() })
+        commands.register("clear-drawing", "Remove every stroke",
+                          action: { [weak self] in self?.drawing.clear() })
         commands.register("toggle-follow-focus", "Follow the focused app's front window on or off",
                           action: { [weak self] in self?.setFollowFocus(!(self?.state.followsFocus ?? false)) })
         commands.register("set-follow-focus", "Follow focus on or off: on=true|false") { [weak self] args in
@@ -585,6 +619,10 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         if previous.isEditingRegion != state.isEditingRegion {
             lua.emit("edit_region", ["on": state.isEditingRegion])
         }
+        if previous.isDrawing != state.isDrawing {
+            lua.emit("draw", ["on": state.isDrawing])
+            hud.show(state.isDrawing ? "Drawing on" : "Drawing off", symbol: "pencil.tip")
+        }
         if previous.followsFocus != state.followsFocus {
             lua.emit("follow_focus", ["on": state.followsFocus])
             hud.show(state.followsFocus ? "Following focused window" : "Following off",
@@ -737,13 +775,14 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             }
         }
 
-        // All four share ctrl-opt-cmd, which is deep enough to stay out of the way of
+        // All of them share ctrl-opt-cmd, which is deep enough to stay out of the way of
         // both apps and the system's own cmd-shift-3/4/5 screenshot keys.
         let defaults: [(Int, String, String)] = [
             (kVK_ANSI_M, "m", "toggle-mirroring"),
             (kVK_ANSI_P, "p", "toggle-pause"),
             (kVK_ANSI_S, "s", "screenshot"),
             (kVK_ANSI_R, "r", "toggle-recording"),
+            (kVK_ANSI_D, "d", "toggle-draw"),
         ]
         let rebound = config.boundCommands
         for (keyCode, key, command) in defaults where !rebound.contains(command) {
@@ -771,8 +810,14 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         menu?.render(state)
 
         regionWindow.isEditing = state.regionAcceptsMouse
+        regionWindow.isDrawing = state.isDrawing
         regionWindow.lockedAspect = state.locksRegionAspect ? OutputCanvas.aspect : nil
         setVisible(regionWindow, state.showsRegionWindow)
+        if state.isDrawing {
+            if !drawingToolbar.isVisible { drawingToolbar.show(near: regionWindow.frame) }
+        } else {
+            drawingToolbar.orderOut(nil)
+        }
         // orderFront, never makeKeyAndOrderFront: the output window must not steal focus
         // from whatever you are about to drag into the region.
         // Back to 1:1 on every start: a window left resized smaller is shared blurred.
@@ -781,7 +826,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
                 outputWindow.contentView?.isHidden = false
                 outputWindow.orderFront(nil)
             } else {
-                let window = OutputWindow(sink: sink, overlay: overlay)
+                let window = OutputWindow(sink: sink, overlay: overlay, drawing: outputDrawing)
                 window.canvasChanged()
                 window.orderFront(nil)
                 outputWindow = window
@@ -890,9 +935,32 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     }
 
     private func setEditing(_ editing: Bool) {
+        if editing, state.isDrawing {
+            state.isDrawing = false
+            drawing.clear()
+        }
         state.isEditingRegion = editing
         Preferences.isEditingRegion = editing
         render()
+    }
+
+    /// Drawing and editing both want the mouse, so turning one on turns the other off.
+    /// Leaving draw mode wipes the strokes.
+    private func setDrawing(_ on: Bool) {
+        guard on != state.isDrawing else { return }
+        state.isDrawing = on
+        if on {
+            state.isEditingRegion = false
+            Preferences.isEditingRegion = false
+        } else {
+            drawing.clear()
+        }
+        render()
+        guard on else { return }
+        // Key, so Escape and cmd-z reach the drawing view.
+        NSApp.activate(ignoringOtherApps: true)
+        regionWindow.makeKeyAndOrderFront(nil)
+        regionWindow.makeFirstResponder(regionWindow.drawingView)
     }
 
     /// Moving the region with the frame hidden would land it somewhere unseen, so reveal
@@ -919,6 +987,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     private static let regionSyncInterval = 1.0 / 30
 
     private func regionChanged() {
+        if state.isDrawing { drawingToolbar.place(near: regionWindow.frame) }
         regionSettle?.invalidate()
         regionSettle = Timer.scheduledTimer(withTimeInterval: Self.regionSyncInterval,
                                             repeats: false) { [weak self] _ in
@@ -931,6 +1000,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     private func syncRegion() {
         lastRegionSync = Date()
         capture.regionChanged()
+        outputDrawing.needsDisplay = true   // the region's shape decides where strokes land
         let spans = regionSpansDisplays()
         if spans != state.regionSpansDisplays {
             state.regionSpansDisplays = spans

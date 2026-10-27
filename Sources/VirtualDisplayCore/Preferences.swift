@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import ServiceManagement
 
 /// Every persisted setting, in one place, so `defaults read com.rapatao.virtual-display`
@@ -18,6 +18,9 @@ public enum Preferences {
         case requireAutomationToken
         case automationToken
         case automationGrants
+        case drawTool
+        case drawColor
+        case drawWidth
     }
 
     /// Startup values for settings the user has never toggled, supplied by the config
@@ -78,6 +81,33 @@ public enum Preferences {
     public static var pluginsEnabled: Bool {
         get { bool(.enablePlugins, default: false) }
         set { set(newValue, .enablePlugins) }
+    }
+
+    // MARK: Drawing
+
+    public static var drawTool: DrawingTool {
+        get { defaults.string(forKey: Key.drawTool.rawValue).flatMap(DrawingTool.init) ?? .laser }
+        set { defaults.set(newValue.rawValue, forKey: Key.drawTool.rawValue) }
+    }
+
+    /// Stored as `#rrggbbaa`, the form `OverlayItem.color` reads back.
+    public static var drawColor: NSColor {
+        get {
+            defaults.string(forKey: Key.drawColor.rawValue)
+                .flatMap { try? OverlayItem.color($0, "color") } ?? .systemRed
+        }
+        set {
+            guard let c = newValue.usingColorSpace(.sRGB) else { return }
+            let hex = [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent]
+                .map { String(format: "%02x", Int(($0 * 255).rounded())) }.joined()
+            defaults.set("#" + hex, forKey: Key.drawColor.rawValue)
+        }
+    }
+
+    /// Points on screen.
+    public static var drawWidth: Double {
+        get { defaults.object(forKey: Key.drawWidth.rawValue) as? Double ?? 4 }
+        set { defaults.set(newValue, forKey: Key.drawWidth.rawValue) }
     }
 
     // MARK: Automation

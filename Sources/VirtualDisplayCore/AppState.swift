@@ -9,6 +9,9 @@ public struct AppState: Equatable, Sendable, Codable {
     /// Session-only, never persisted: a pause is something you undo within a meeting.
     public var isPaused = false
     public var isEditingRegion = true
+    /// Session-only: the region takes the mouse for drawing. Never on together with
+    /// region editing, since both want the mouse.
+    public var isDrawing = false
     /// The region tracks the window you are working in, wherever it goes.
     public var followsFocus = false
     public var showsCursor = true
@@ -40,9 +43,9 @@ public struct AppState: Equatable, Sendable, Codable {
     /// meeting's selection, which is the opposite of what a pause is for.
     public var showsOutputWindow: Bool { isMirroring }
 
-    /// Visible while you are placing it, or while mirroring makes it mark what is being
+    /// Visible while you are placing it or drawing on it, or while mirroring makes it mark what is being
     /// shared. Neither, and it has nothing to say.
-    public var showsRegionWindow: Bool { isMirroring || isEditingRegion }
+    public var showsRegionWindow: Bool { isMirroring || isEditingRegion || isDrawing }
 
     /// A pause freezes the picture, so it has to freeze what the picture is of too:
     /// following an app switch while paused would silently change what resumes.

@@ -34,6 +34,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         public var toggleMirroring: () -> Void = {}
         public var togglePause: () -> Void = {}
         public var toggleEditRegion: () -> Void = {}
+        public var toggleDraw: () -> Void = {}
         public var toggleFollowFocus: () -> Void = {}
         public var toggleAspectLock: () -> Void = {}
         public var applySize: (RegionSize) -> Void = { _ in }
@@ -61,6 +62,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     private let mirroringItem: ActionMenuItem
     private let pauseItem: ActionMenuItem
     private let editItem: ActionMenuItem
+    private let drawItem: ActionMenuItem
     private let followItem: ActionMenuItem
     private let aspectItem: ActionMenuItem
     private let presetItem = NSMenuItem(title: "Region Presets", action: nil, keyEquivalent: "")
@@ -87,6 +89,9 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
                                    modifiers: [.control, .option, .command],
                                    handler: actions.togglePause)
         editItem = ActionMenuItem("Edit Region", handler: actions.toggleEditRegion)
+        drawItem = ActionMenuItem("Draw", key: "d",
+                                  modifiers: [.control, .option, .command],
+                                  handler: actions.toggleDraw)
         followItem = ActionMenuItem("Follow Focused Window", handler: actions.toggleFollowFocus)
         aspectItem = ActionMenuItem("Lock Region Aspect", handler: actions.toggleAspectLock)
         screenshotItem = ActionMenuItem("Take Screenshot", key: "s",
@@ -106,7 +111,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false   // otherwise AppKit overrides our isEnabled flags
 
-        [accessItem, mirroringItem, pauseItem, editItem, followItem, aspectItem].forEach(menu.addItem)
+        [accessItem, mirroringItem, pauseItem, editItem, drawItem, followItem, aspectItem].forEach(menu.addItem)
         menu.addItem(presetItem)
         menu.addItem(spanItem)
         menu.addItem(.separator())
@@ -144,6 +149,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
             "toggle-pause": pauseItem,
             "screenshot": screenshotItem,
             "toggle-recording": recordItem,
+            "toggle-draw": drawItem,
         ]
         for (command, item) in items {
             guard let spec = specs[command] else {
@@ -221,6 +227,8 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         // task you do before joining a call, not something gated on capture running.
         editItem.isEnabled = true
         editItem.state = state.isEditingRegion ? .on : .off
+        drawItem.isEnabled = true
+        drawItem.state = state.isDrawing ? .on : .off
         followItem.isEnabled = true
         followItem.state = state.followsFocus ? .on : .off
         aspectItem.isEnabled = true
