@@ -201,13 +201,13 @@ final class SampleWriter: @unchecked Sendable {
     /// Finalises the file. An unfinalised .mov is not playable, so this must run on every
     /// path out of recording, including quit.
     func finish() async throws {
-        lock.lock()
-        let hadFrames = started
-        if started {
-            input.markAsFinished()
-            audioInput?.markAsFinished()
+        let hadFrames = lock.withLock {
+            if started {
+                input.markAsFinished()
+                audioInput?.markAsFinished()
+            }
+            return started
         }
-        lock.unlock()
 
         guard hadFrames else {
             writer.cancelWriting()
@@ -265,7 +265,7 @@ final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDel
     /// What the writer's audio track should be configured with, as reported by the
     /// running device.
     var recommendedSettings: [String: Any]? {
-        output.recommendedAudioSettingsForAssetWriter(writingTo: .mov) as? [String: Any]
+        output.recommendedAudioSettingsForAssetWriter(writingTo: .mov)
     }
 
     func start() async throws {

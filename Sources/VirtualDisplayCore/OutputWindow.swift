@@ -35,8 +35,9 @@ public final class OutputWindow: NSWindow {
     public let overlay: OverlayView
     public let drawing: DrawingView?
 
-    init(sink: VideoSink = VideoSink(), overlay: OverlayView = OverlayView(),
+    init(sink: VideoSink = VideoSink(), overlay: OverlayView? = nil,
          drawing: DrawingView? = nil) {
+        let overlay = overlay ?? OverlayView()
         self.sink = sink
         self.overlay = overlay
         self.drawing = drawing
