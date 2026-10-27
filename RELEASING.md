@@ -46,15 +46,16 @@ the step is skipped.
 | `NOTARY_TEAM_ID` | 10-character Team ID |
 | `NOTARY_PASSWORD` | An [app-specific password](https://appleid.apple.com), not your account password |
 
-## Homebrew tap
+## Homebrew tap and NUR
 
 | Secret | Contents |
 | --- | --- |
-| `GH_RELEASE_TOKEN` | A token with write access to `rapatao/homebrew-tap` |
+| `GH_RELEASE_TOKEN` | A token with write access to `rapatao/homebrew-tap` and `rapatao/nur-packages` |
 
 On a tag build the workflow checksums `VirtualDisplay.zip`, regenerates
-`Casks/virtual-display.rb` in the tap, and pushes it. Unset the secret and the step is
-skipped; the GitHub Release is still published.
+`Casks/virtual-display.rb` in the tap and `pkgs/virtual-display/default.nix` in
+nur-packages, and pushes both. Unset the secret and both steps are skipped; the GitHub
+Release is still published.
 
 ## What each signing level buys
 
@@ -70,5 +71,6 @@ ad-hoc release re-asks for permission. Any real certificate fixes that.
 ## License in the bundle
 
 `bundle.sh` copies `LICENSE` into `VirtualDisplay.app/Contents/Resources/`. The release
-zip and the Homebrew cask both carry the `.app` and nothing else, so that copy is what
-satisfies GPL section 4 for anyone who installs a binary. Do not drop it from the bundle.
+zip, the Homebrew cask and the NUR package all carry the `.app` and nothing else, so that
+copy is what satisfies GPL section 4 for anyone who installs a binary. Do not drop it from
+the bundle.

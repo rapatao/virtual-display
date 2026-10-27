@@ -30,6 +30,18 @@ detour. Upgrade with `brew upgrade --cask virtual-display`, remove with
 `brew uninstall --cask virtual-display`, and `brew uninstall --zap --cask virtual-display`
 to also delete saved preferences.
 
+### Nix
+
+The package lives in the [rapatao NUR repository](https://github.com/rapatao/nur-packages)
+as `nur.repos.rapatao.virtual-display`, or straight from that repository:
+
+```sh
+nix profile install github:rapatao/nur-packages#virtual-display
+```
+
+It installs `VirtualDisplay.app` under the profile's `Applications` directory. Nix does
+not quarantine what it fetches, so the app launches without the Gatekeeper detour.
+
 ### Manual
 
 Download `VirtualDisplay.zip` from the [Releases](../../releases) page, unzip, and move
