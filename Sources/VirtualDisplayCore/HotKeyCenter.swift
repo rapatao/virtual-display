@@ -10,7 +10,7 @@ public final class HotKeyCenter {
     public static let shared = HotKeyCenter()
 
     /// Deep enough to avoid colliding with anything common.
-    public static let defaultModifiers = UInt32(controlKey | optionKey | cmdKey)
+    public nonisolated static let defaultModifiers = UInt32(controlKey | optionKey | cmdKey)
 
     private struct Entry {
         var ref: EventHotKeyRef?

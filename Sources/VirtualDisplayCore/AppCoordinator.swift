@@ -567,7 +567,11 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         host.state = { [weak self] in self?.state ?? AppState() }
         host.region = { [weak self] in self?.regionWindow.frame ?? .zero }
         host.windows = { ScreenWindows.list() }
-        host.fetch = { request, completion in Fetch.send(request, completion: completion) }
+        host.fetch = { request, completion in
+            // Fetch delivers on the main queue, where the Lua callback has to run anyway.
+            nonisolated(unsafe) let completion = completion
+            Fetch.send(request) { completion($0, $1, $2) }
+        }
         return host
     }
 

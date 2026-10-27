@@ -162,7 +162,7 @@ final class SampleWriterTests: XCTestCase {
     }
 }
 
-extension CaptureFailure: @retroactive Equatable {
+extension CaptureFailure: Equatable {
     public static func == (lhs: CaptureFailure, rhs: CaptureFailure) -> Bool {
         lhs.localizedDescription == rhs.localizedDescription
     }
