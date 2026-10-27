@@ -231,17 +231,17 @@ final class SettingsModel: ObservableObject {
 
     /// Duplicates are not an error, they are just noise in the list, so adding one is a
     /// no-op rather than a second row that does nothing.
-    func addFollowIgnore(_ name: String) {
+    func addApp(_ name: String, to list: WritableKeyPath<Config, [String]>) {
         let name = name.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty,
-              !config.followIgnores.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame })
+              !config[keyPath: list].contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame })
         else { return }
-        config.followIgnores.append(name)
+        config[keyPath: list].append(name)
         commit()
     }
 
-    func removeFollowIgnores(_ offsets: IndexSet) {
-        config.followIgnores.remove(atOffsets: offsets)
+    func removeApps(_ offsets: IndexSet, from list: WritableKeyPath<Config, [String]>) {
+        config[keyPath: list].remove(atOffsets: offsets)
         commit()
     }
 
@@ -356,6 +356,7 @@ struct SettingsView: View {
         case output = "Output"
         case shortcuts = "Shortcuts"
         case follow = "Follow"
+        case privacy = "Privacy"
         case captures = "Captures"
         case automation = "Automation"
         case plugins = "Plugins"
@@ -368,6 +369,7 @@ struct SettingsView: View {
             case .output: return "aspectratio"
             case .shortcuts: return "keyboard"
             case .follow: return "dot.viewfinder"
+            case .privacy: return "eye.slash"
             case .captures: return "photo.on.rectangle"
             case .automation: return "lock.shield"
             case .plugins: return "puzzlepiece.extension"
@@ -415,6 +417,7 @@ struct SettingsView: View {
         case .output: OutputTab(model: model)
         case .shortcuts: ShortcutsTab(model: model)
         case .follow: FollowTab(model: model)
+        case .privacy: PrivacyTab(model: model)
         case .captures: CapturesTab(model: model)
         case .automation: AutomationTab(model: model)
         case .plugins: PluginsTab(model: model)
@@ -750,9 +753,7 @@ final class ShortcutRecorder: NSButton {
     }
 }
 
-/// The follow toggle and the apps it leaves alone. Picking from the running apps rather
-/// than only typing is the point: the list matches whole names, so a typo is a rule that
-/// silently never fires.
+/// The follow toggle and the apps it leaves alone.
 private struct FollowTab: View {
     @ObservedObject var model: SettingsModel
 
@@ -764,50 +765,81 @@ private struct FollowTab: View {
 
             Text("The region moves onto the window you are working in, and keeps up as "
                  + "that window is moved or resized. Apps listed below are left alone. "
-                 + "Turn this off to place the region by hand again.")
+                 + "Turn this off to place the region by hand again. Apps left alone "
+                 + "still appear in the share; to hide them, use Privacy.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Each row removes itself. The row is an editable field edge to edge, so a
-            // click lands in the text rather than selecting the row, which leaves a
-            // selection-driven Remove button unreachable.
-            List {
-                ForEach(model.config.followIgnores.indices, id: \.self) { index in
-                    HStack(spacing: 8) {
-                        TextField("App name or bundle id",
-                                  text: Binding(get: { model.config.followIgnores[index] },
-                                                set: { model.config.followIgnores[index] = $0
-                                                       model.commitSoon() }))
-                            .textFieldStyle(.roundedBorder)
-                        Button {
-                            model.removeFollowIgnores(IndexSet(integer: index))
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                        }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.secondary)
-                        .help("Remove \(model.config.followIgnores[index])")
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-            .border(.separator)
+            AppListEditor(model: model, list: \.followIgnores)
+        }
+    }
+}
 
-            HStack {
-                Menu("Add App") {
-                    ForEach(runningApps, id: \.self) { name in
-                        Button(name) { model.addFollowIgnore(name) }
+/// Apps whose windows the capture filter drops.
+private struct PrivacyTab: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Windows of these apps never reach the share, even inside the region. "
+                 + "The meeting sees what is underneath them instead. Notification "
+                 + "Center is listed by default so banners stay private. Follow mode "
+                 + "skips these apps too. To only stop the region jumping onto an app, "
+                 + "use Follow.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            AppListEditor(model: model, list: \.excludedApps)
+        }
+    }
+}
+
+/// Picking from the running apps rather than only typing is the point: the list matches
+/// whole names, so a typo is a rule that silently never fires.
+private struct AppListEditor: View {
+    @ObservedObject var model: SettingsModel
+    let list: WritableKeyPath<Config, [String]>
+
+    var body: some View {
+        // Each row removes itself. The row is an editable field edge to edge, so a
+        // click lands in the text rather than selecting the row, which leaves a
+        // selection-driven Remove button unreachable.
+        List {
+            ForEach(model.config[keyPath: list].indices, id: \.self) { index in
+                HStack(spacing: 8) {
+                    TextField("App name or bundle id",
+                              text: Binding(get: { model.config[keyPath: list][index] },
+                                            set: { model.config[keyPath: list][index] = $0
+                                                   model.commitSoon() }))
+                        .textFieldStyle(.roundedBorder)
+                    Button {
+                        model.removeApps(IndexSet(integer: index), from: list)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
                     }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Remove \(model.config[keyPath: list][index])")
                 }
-                .fixedSize()
-                Button("Add Manually") { model.addFollowIgnore("New app") }
-                Spacer()
+                .padding(.vertical, 2)
             }
+        }
+        .border(.separator)
+
+        HStack {
+            Menu("Add App") {
+                ForEach(runningApps, id: \.self) { name in
+                    Button(name) { model.addApp(name, to: list) }
+                }
+            }
+            .fixedSize()
+            Button("Add Manually") { model.addApp("New app", to: list) }
+            Spacer()
         }
     }
 
-    /// Only apps with a Dock presence: an agent app has no ordinary window to follow, so
-    /// listing one would offer a rule that could never match anyway.
+    /// Only apps with a Dock presence: an agent app has no ordinary window to follow or
+    /// hide, so listing one would offer a rule that could never match anyway.
     private var runningApps: [String] {
         let names = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier }

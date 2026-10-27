@@ -62,6 +62,20 @@ final class ConfigTests: XCTestCase {
 
     /// The list is typed by hand, so it matches on either the name or the bundle id and
     /// does not care about casing; getting this wrong puts an app on the call.
+    func testNotificationBannersAreHiddenUnlessTheListSaysOtherwise() throws {
+        XCTAssertTrue(Config.load(from: try write("{}"))
+            .excludesFromShare(app: "Notification Center", bundleID: "com.apple.notificationcenterui"))
+
+        let none = Config.load(from: try write("{ \"excludedApps\": [] }"))
+        XCTAssertFalse(none.excludesFromShare(app: nil, bundleID: "com.apple.notificationcenterui"))
+
+        let slack = Config.load(from: try write("{ \"excludedApps\": [\"slack\"] }"))
+        XCTAssertTrue(slack.excludesFromShare(app: "Slack", bundleID: "com.tinyspeck.slackmacgap"))
+        XCTAssertFalse(slack.excludesFromShare(app: "Safari", bundleID: "com.apple.Safari"))
+        XCTAssertTrue(slack.ignoresFocus(app: "Slack", bundleID: nil),
+                      "follow mode must not land the region on a window the share hides")
+    }
+
     func testFollowIgnoresMatchNameOrBundleIDInAnyCase() throws {
         let url = try write("""
         { "followIgnores": ["slack", "com.1password.1password"] }

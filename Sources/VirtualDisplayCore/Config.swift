@@ -84,8 +84,14 @@ public struct Config: Codable, Equatable, Sendable {
     /// Apps that follow mode leaves alone: the meeting app itself, a password manager,
     /// anything you switch to mid-call without wanting it on the call.
     public var followIgnores: [String] = []
+    /// Apps whose windows never reach the share, even inside the region: notification
+    /// banners, chat popups, a password manager. Present but empty hides nothing.
+    public var excludedApps: [String] = Config.defaultExcludedApps
     /// Plugin file names left unloaded while the rest still run, as `10-clock.lua`.
     public var disabledPlugins: [String] = []
+
+    /// Notification banners land over whatever is on screen, region included.
+    public static let defaultExcludedApps = ["com.apple.notificationcenterui"]
 
     public init() {}
 
@@ -102,6 +108,8 @@ public struct Config: Codable, Equatable, Sendable {
         output = try container.decodeIfPresent(Output.self, forKey: .output)
         freezeOnPause = try container.decodeIfPresent(Bool.self, forKey: .freezeOnPause)
         followIgnores = try container.decodeIfPresent([String].self, forKey: .followIgnores) ?? []
+        excludedApps = try container.decodeIfPresent([String].self, forKey: .excludedApps)
+            ?? Config.defaultExcludedApps
         disabledPlugins = try container.decodeIfPresent([String].self, forKey: .disabledPlugins) ?? []
     }
 
@@ -121,9 +129,20 @@ public struct Config: Codable, Equatable, Sendable {
 
     /// Matched case-insensitively against the app's name and its bundle id, so both
     /// `"Slack"` and `"com.tinyspeck.slackmacgap"` work and neither needs exact casing.
+    /// Hidden apps count too: following onto a window the share leaves out shows only
+    /// what is behind it.
     public func ignoresFocus(app name: String?, bundleID: String?) -> Bool {
+        Self.list(followIgnores + excludedApps, matches: name, bundleID)
+    }
+
+    /// Matched the same way as `ignoresFocus`.
+    public func excludesFromShare(app name: String?, bundleID: String?) -> Bool {
+        Self.list(excludedApps, matches: name, bundleID)
+    }
+
+    private static func list(_ entries: [String], matches name: String?, _ bundleID: String?) -> Bool {
         let candidates = [name, bundleID].compactMap { $0?.lowercased() }
-        return followIgnores.contains { candidates.contains($0.lowercased()) }
+        return entries.contains { candidates.contains($0.lowercased()) }
     }
 
     public static func load(from url: URL = ConfigPaths.file) -> Config {

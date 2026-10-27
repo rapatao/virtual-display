@@ -255,7 +255,9 @@ Some apps should never drag the region onto the call: the meeting app itself, a 
 manager, a terminal with secrets in the scrollback. **Settings... > Follow** holds the
 list; **Add App** picks from what is running, rows can be edited by hand for an app that is
 not, and each row removes itself with the button beside it. Follow mode skips those apps,
-leaving the region on whatever it followed last.
+leaving the region on whatever it followed last. A skipped app still appears in the share
+if its window is inside the region; to keep it off the call, add it to the
+[hidden apps](#hidden-apps) too.
 
 The same list in `config.json`, for a machine you set up from a file:
 
@@ -273,6 +275,26 @@ be turned on or off from a shortcut or a script like anything else
 (`virtualdisplay://toggle-follow-focus`).
 
 ---
+
+### Hidden apps
+
+Anything inside the region reaches the meeting, including a notification banner or a chat
+popup that happens to land there. Apps on the hidden list never reach the share: their
+windows are left out of the capture, and the meeting sees whatever is underneath them.
+Notification Center is on the list by default, so banners stay off the call.
+
+**Settings... > Privacy** holds the list, edited the same way as the Follow list. The same
+list in `config.json`:
+
+```json
+{ "excludedApps": ["com.apple.notificationcenterui", "Slack", "com.1password.1password"] }
+```
+
+Entries match like `followIgnores`: the app's name or its bundle id, case-insensitively,
+whole names only. Leaving the key out keeps the default; `"excludedApps": []` hides
+nothing, banners included. An app launched while mirroring is hidden as soon as it starts.
+[Follow Focused Window](#follow-focused-window) skips hidden apps as well, since following
+onto a window the share leaves out would only show what is behind it.
 
 ## Customising without a new release
 
@@ -299,6 +321,7 @@ leaves them alone and none of them needs a rebuild.
 | Output | The [output size](#output-size), the [aspect lock](#aspect-lock), whether pause freezes the last frame or blanks it, and whether the output window opens off screen |
 | Shortcuts | Click a shortcut, press the keys. Escape cancels, Delete clears. Recording one for an action replaces its default, and the menu updates to match |
 | Follow | The Follow Focused Window switch, and the list of apps it leaves alone. **Add App** picks from what is running, so the name is spelled the way the matcher expects; each row has its own remove button |
+| Privacy | The [apps hidden from the share](#hidden-apps), which follow mode also skips. Edited the same way as the Follow list |
 | Captures | Where screenshots and recordings are written, or **Default** for the system folders, and whether recordings carry microphone audio |
 | Automation | Who may drive the app over `virtualdisplay://`: the [token](#the-automation-token), whether it is required, and a rule per command - Deny, Always ask, Ask once, Allow, or Accept without token |
 | Plugins | The plugin switch, the folder, a reload button, every `.lua` file in it with its own switch, and any load errors |
@@ -357,6 +380,7 @@ pause; frozen, the meeting keeps seeing the last frame instead.
   "freezeOnPause": true,
   "captures": { "recordings": "~/Desktop", "microphone": true },
   "followIgnores": ["Slack", "com.1password.1password"],
+  "excludedApps": ["com.apple.notificationcenterui", "Slack"],
   "disabledPlugins": ["20-ticker.lua"]
 }
 ```
@@ -370,7 +394,8 @@ key. `defaults` only applies to settings you have never toggled in the menu; onc
 toggle one, your choice wins. `output` is the [output size](#output-size), clamped to even
 numbers between 320 and 7680. `freezeOnPause` leaves the last frame up instead of blanking.
 `captures.microphone` records your voice into a `.mov`. `followIgnores` is the list of apps
-[Follow Focused Window](#follow-focused-window) leaves alone, and `disabledPlugins` the
+[Follow Focused Window](#follow-focused-window) leaves alone, `excludedApps` the
+[apps hidden from the share](#hidden-apps), and `disabledPlugins` the
 [plugin files](#lua-plugins) left unloaded.
 
 Every key is optional; the ones you leave out keep their defaults.

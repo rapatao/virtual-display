@@ -60,7 +60,10 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         capture = CaptureController(
             source: CaptureController.Source(
                 regionFrame: { [regionWindow] in regionWindow.frame },
-                regionScreen: { [regionWindow] in regionWindow.screen }),
+                regionScreen: { [regionWindow] in regionWindow.screen },
+                excludesApp: { [weak self] name, bundleID in
+                    self?.config.excludesFromShare(app: name, bundleID: bundleID) ?? false
+                }),
             sink: sink)
 
         capture.onFailure = { [weak self] error in self?.captureFailed(error) }
@@ -72,7 +75,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             report(error)
         }
         regionWindow.onFrameChanged = { [weak self] in self?.regionChanged() }
-        regionWindow.onScreenChanged = { [weak self] in self?.capture.screenChanged() }
+        regionWindow.onScreenChanged = { [weak self] in self?.capture.filterChanged() }
     }
 
     // MARK: Lifecycle
@@ -109,6 +112,18 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         registerHotKeys()
         loadPlugins()
         render()
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            MainActor.assumeIsolated {
+                guard let self, self.config.excludesFromShare(app: app?.localizedName,
+                                                              bundleID: app?.bundleIdentifier)
+                else { return }
+                self.capture.filterChanged()
+            }
+        }
     }
 
     /// The menu asks for commands by name like everything else, so a menu item and a
@@ -482,7 +497,9 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     private func adopt(_ new: Config) {
         // Turning one plugin off has to unregister what it added, which only a reload does.
         let pluginsChanged = new.disabledPlugins != config.disabledPlugins
+        let exclusionsChanged = new.excludedApps != config.excludedApps
         config = new
+        if exclusionsChanged { capture.filterChanged() }
 
         presets = RegionSize.presets + config.regionSizes + pluginPresets
         menu?.setPresets(presets)
