@@ -119,4 +119,14 @@ final class AppStateTests: XCTestCase {
         state.isDrawing = true
         XCTAssertTrue(state.showsRegionWindow)
     }
+
+    func testClicksAreOnlyWatchedWhileSharing() {
+        var state = AppState()
+        state.highlightsClicks = true
+        XCTAssertFalse(state.isHighlightingClicks)
+        state.isMirroring = true
+        XCTAssertTrue(state.isHighlightingClicks)
+        state.isPaused = true
+        XCTAssertFalse(state.isHighlightingClicks)
+    }
 }

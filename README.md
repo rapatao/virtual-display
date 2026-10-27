@@ -98,6 +98,7 @@ presence; turn mirroring off and it goes back to tray-only.
 | **Region Presets** | Size and position presets, see below. |
 | **Region spans two displays** | A warning, not a command. Only visible when the region lies across two screens, which capture cannot do. |
 | **Show Cursor in Share** | Whether your pointer appears in what you share. |
+| **Highlight Clicks in Share** | A yellow ring grows and fades wherever you click inside the region, so viewers can follow a demo. Only the share shows it, not your screen. Off by default, or `"highlightClicks": true` under `defaults` in [config.json](#configjson). Needs no extra permission. |
 | **Launch at Login** | Registers the app with macOS via `SMAppService`. |
 | **Take Screenshot** / **Copy Screenshot** | A PNG of the shared window, to a file or the clipboard. Greyed out unless there is a picture to take, see below. |
 | **Start Recording** / **Stop Recording** | Records the shared window to a `.mov`. `Ctrl Opt Cmd R`. |
@@ -432,7 +433,7 @@ open 'virtualdisplay://set-region?x=100&y=100&w=960&h=540'
 | `snap-to-window-below` | |
 | `screenshot` | `path=` optional, or `clipboard=true`; returns where it will land |
 | `start-recording`, `stop-recording`, `toggle-recording` | `path=` optional, `mic=true\|false` overrides the setting |
-| `toggle-cursor`, `toggle-login-item`, `request-access` | |
+| `toggle-cursor`, `toggle-click-highlight`, `toggle-login-item`, `request-access` | |
 | `copy-diagnostics`, `diagnostics` | |
 | `state` | prints `AppState` as JSON |
 | `commands` | lists every command, including any a plugin added |
@@ -701,6 +702,7 @@ Stored in `UserDefaults` under `com.rapatao.virtual-display`:
 | `editRegion` | Edit Region toggle |
 | `followFocus` | Follow Focused Window toggle. Absent means off |
 | `showsCursor` | Show Cursor in Share toggle |
+| `highlightClicks` | Highlight Clicks in Share toggle. Absent means off |
 | `lockAspect` | Lock Region Aspect toggle. Absent means off |
 | `didRequestScreenRecordingAccess` | Whether the system permission prompt has been shown |
 | `enablePlugins` | Enable Plugins toggle. Absent means off |

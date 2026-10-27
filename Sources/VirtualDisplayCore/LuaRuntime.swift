@@ -300,6 +300,7 @@ public final class LuaRuntime {
                 "isCapturing": state.isCapturing,
                 "isEditingRegion": state.isEditingRegion,
                 "showsCursor": state.showsCursor,
+                "highlightsClicks": state.highlightsClicks,
                 "isLoginItemEnabled": state.isLoginItemEnabled,
                 "isRecording": state.isRecording,
             ])

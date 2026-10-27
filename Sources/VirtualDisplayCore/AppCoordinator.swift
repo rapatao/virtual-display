@@ -48,6 +48,8 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     public override init() {
         regionWindow = RegionWindow(drawing: drawing)
         outputDrawing = DrawingView(drawing: drawing)
+        outputDrawing.showsClicks = true
+        drawing.onClicksChange = { [outputDrawing] in outputDrawing.needsDisplay = true }
         super.init()
 
         outputDrawing.fitting = { [regionWindow] in [OutputCanvas.size, regionWindow.frame.size] }
@@ -86,6 +88,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         // choice of their own.
         if let defaults = config.defaults {
             Preferences.fallbacks.showsCursor = defaults.showsCursor ?? true
+            Preferences.fallbacks.highlightsClicks = defaults.highlightClicks ?? false
             Preferences.fallbacks.isEditingRegion = defaults.editRegion ?? true
             Preferences.fallbacks.followsFocus = defaults.followFocus ?? false
             Preferences.fallbacks.locksAspect = defaults.lockAspect ?? false
@@ -99,6 +102,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         state.isEditingRegion = Preferences.isEditingRegion
         state.followsFocus = Preferences.followsFocus
         state.showsCursor = Preferences.showsCursor
+        state.highlightsClicks = Preferences.highlightsClicks
         state.locksRegionAspect = Preferences.locksAspect
         state.regionSpansDisplays = regionSpansDisplays()
         state.isLoginItemEnabled = LoginItem.isEnabled
@@ -149,6 +153,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         actions.copyScreenshot = { [weak self] in self?.run("screenshot", ["clipboard": "true"]) }
         actions.toggleRecording = { [weak self] in self?.run("toggle-recording") }
         actions.toggleCursor = { [weak self] in self?.run("toggle-cursor") }
+        actions.toggleClickHighlight = { [weak self] in self?.run("toggle-click-highlight") }
         actions.toggleLoginItem = { [weak self] in self?.run("toggle-login-item") }
         actions.copyDiagnostics = { [weak self] in self?.run("copy-diagnostics") }
         actions.openSettings = { [weak self] in self?.run("settings") }
@@ -264,6 +269,8 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         commands.register("toggle-cursor", "Show or hide the pointer in the shared window",
                           action: { [weak self] in self?.toggleCursor() })
+        commands.register("toggle-click-highlight", "Mark clicks inside the region in the share",
+                          action: { [weak self] in self?.toggleClickHighlight() })
         commands.register("toggle-login-item", "Launch at login on or off",
                           action: { [weak self] in self?.toggleLoginItem() })
         commands.register("request-access", "Ask for Screen Recording permission",
@@ -853,6 +860,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
 
         setFollowing(state.isFollowingFocus)
+        setWatchingClicks(state.isHighlightingClicks)
 
         let policy: NSApplication.ActivationPolicy = state.wantsDockIcon ? .regular : .accessory
         if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
@@ -1103,6 +1111,32 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         Preferences.showsCursor = state.showsCursor
         capture.showsCursor = state.showsCursor
         render()
+    }
+
+    private func toggleClickHighlight() {
+        state.highlightsClicks.toggle()
+        Preferences.highlightsClicks = state.highlightsClicks
+        render()
+    }
+
+    private var clickMonitor: Any?
+
+    /// A global monitor sees clicks delivered to other apps, which is every click in the
+    /// region once it is click-through. Mouse events need no Accessibility grant; only
+    /// key events do.
+    private func setWatchingClicks(_ on: Bool) {
+        guard on != (clickMonitor != nil) else { return }
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
+        guard on else { return }
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let point = Drawing.fraction(of: NSEvent.mouseLocation, in: self.regionWindow.frame)
+                else { return }
+                self.drawing.click(at: point)
+            }
+        }
     }
 
     private func toggleLoginItem() {

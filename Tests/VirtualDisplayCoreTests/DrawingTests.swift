@@ -31,6 +31,44 @@ final class DrawingTests: XCTestCase {
         XCTAssertEqual(Drawing.opacity(of: pen, at: ended + 10), 1)
     }
 
+    /// Screen points are bottom-left origin; the region's fractions are top-left.
+    func testClicksMapIntoTheRegionFromItsTopLeft() {
+        let region = CGRect(x: 100, y: 200, width: 400, height: 200)
+        let topLeft = Drawing.fraction(of: CGPoint(x: 100, y: 400), in: region)
+        XCTAssertEqual(topLeft, CGPoint(x: 0, y: 0))
+        let point = Drawing.fraction(of: CGPoint(x: 400, y: 250), in: region)
+        XCTAssertEqual(point, CGPoint(x: 0.75, y: 0.75))
+        XCTAssertNil(Drawing.fraction(of: CGPoint(x: 99, y: 300), in: region))
+        XCTAssertNil(Drawing.fraction(of: CGPoint(x: 300, y: 401), in: region))
+    }
+
+    func testClicksFadeAndAreRemovedWithoutTouchingStrokes() {
+        let drawing = Drawing()
+        let start = Date()
+        drawing.begin(stroke(.pen)); drawing.end(at: start)
+        drawing.click(at: CGPoint(x: 0.5, y: 0.5), now: start)
+        XCTAssertEqual(Drawing.progress(of: drawing.clicks[0], at: start + Drawing.clickFade / 2),
+                       0.5, accuracy: 0.001)
+        drawing.removeFaded(at: start + Drawing.clickFade / 2)
+        XCTAssertEqual(drawing.clicks.count, 1)
+        drawing.removeFaded(at: start + Drawing.clickFade)
+        XCTAssertTrue(drawing.clicks.isEmpty)
+        XCTAssertEqual(drawing.strokes.map(\.tool), [.pen])
+    }
+
+    /// The region view redraws on `onChange` and never shows clicks.
+    func testClicksNeverRedrawTheRegionView() {
+        let drawing = Drawing()
+        var strokeRedraws = 0, clickRedraws = 0
+        drawing.onChange = { strokeRedraws += 1 }
+        drawing.onClicksChange = { clickRedraws += 1 }
+        let start = Date()
+        drawing.click(at: CGPoint(x: 0.5, y: 0.5), now: start)
+        drawing.removeFaded(at: start + Drawing.clickFade)
+        XCTAssertEqual(strokeRedraws, 0)
+        XCTAssertEqual(clickRedraws, 2)
+    }
+
     func testFadedLasersAreRemoved() {
         let drawing = Drawing()
         let start = Date()

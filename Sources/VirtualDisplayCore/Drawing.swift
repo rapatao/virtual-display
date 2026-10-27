@@ -26,15 +26,26 @@ public struct Stroke {
     public var endedAt: Date?
 }
 
+/// A click inside the region, marked in the share by a ring that grows and fades.
+public struct Click {
+    /// A fraction of the region, like stroke points.
+    public var point: CGPoint
+    public var at: Date
+}
+
 /// The strokes, and the pen they are drawn with. Shared by the view over the region and
 /// the one in the output window, which redraw on `onChange`.
 @MainActor
 public final class Drawing {
 
     public private(set) var strokes: [Stroke] = []
+    public private(set) var clicks: [Click] = []
     public var onChange: (() -> Void)?
+    /// Clicks are drawn only in the output window, so they redraw only that.
+    public var onClicksChange: (() -> Void)?
 
     static let laserFade: TimeInterval = 1.5
+    static let clickFade: TimeInterval = 0.6
     private var fadeTimer: Timer?
 
     public var tool = Preferences.drawTool { didSet { Preferences.drawTool = tool } }
@@ -61,6 +72,28 @@ public final class Drawing {
         if strokes[last].tool == .laser { startFading() }
     }
 
+    func click(at point: CGPoint, now: Date = Date()) {
+        clicks.append(Click(point: point, at: now))
+        onClicksChange?()
+        startFading()
+    }
+
+    /// Where a screen point lands in the region, as fractions from its top left, or nil
+    /// outside it. Both are AppKit screen coordinates, origin bottom left.
+    static func fraction(of point: CGPoint, in region: CGRect) -> CGPoint? {
+        guard region.width > 0, region.height > 0,
+              (region.minX...region.maxX).contains(point.x),
+              (region.minY...region.maxY).contains(point.y)
+        else { return nil }
+        return CGPoint(x: (point.x - region.minX) / region.width,
+                       y: (region.maxY - point.y) / region.height)
+    }
+
+    /// 0 at the click, up to 1 at `clickFade`.
+    static func progress(of click: Click, at now: Date) -> CGFloat {
+        CGFloat(min(max(now.timeIntervalSince(click.at) / clickFade, 0), 1))
+    }
+
     /// Laser strokes are not undoable: they are gone by the time anyone reaches for undo.
     public func undo() {
         guard let index = strokes.lastIndex(where: { $0.tool != .laser }) else { return }
@@ -82,11 +115,14 @@ public final class Drawing {
 
     func removeFaded(at now: Date) {
         let before = strokes.count
+        let clicksBefore = clicks.count
         strokes.removeAll { Self.opacity(of: $0, at: now) <= 0 }
+        clicks.removeAll { Self.progress(of: $0, at: now) >= 1 }
         if strokes.count != before { onChange?() }
+        if clicks.count != clicksBefore { onClicksChange?() }
     }
 
-    /// Runs only while a laser stroke is fading.
+    /// Runs only while a laser stroke or a click is fading.
     private func startFading() {
         guard fadeTimer == nil else { return }
         fadeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
@@ -96,8 +132,10 @@ public final class Drawing {
 
     private func fadeTick() {
         removeFaded(at: Date())
-        onChange?()
-        if !strokes.contains(where: { $0.tool == .laser && $0.endedAt != nil }) {
+        let lasersFading = strokes.contains { $0.tool == .laser && $0.endedAt != nil }
+        if lasersFading { onChange?() }
+        if !clicks.isEmpty { onClicksChange?() }
+        if !lasersFading, clicks.isEmpty {
             fadeTimer?.invalidate()
             fadeTimer = nil
         }
@@ -115,6 +153,10 @@ public final class DrawingView: NSView {
     /// the region into the canvas, so the strokes have to land where the region's picture
     /// does. Empty fills the bounds.
     var fitting: () -> [CGSize] = { [] }
+
+    /// Only the output window's copy draws clicks: they are for the meeting, and the
+    /// presenter already knows where they clicked.
+    var showsClicks = false
 
     var acceptsInput = false {
         didSet { window?.invalidateCursorRects(for: self) }
@@ -165,6 +207,23 @@ public final class DrawingView: NSView {
             let alpha = stroke.tool.inkAlpha * Drawing.opacity(of: stroke, at: now)
             stroke.color.withAlphaComponent(stroke.color.alphaComponent * alpha).setStroke()
             path.stroke()
+        }
+        if showsClicks { drawClicks(in: rect, at: now) }
+    }
+
+    /// Sized against the content rect's height, so a ring covers the same share of the
+    /// picture at any output size.
+    private func drawClicks(in rect: CGRect, at now: Date) {
+        for click in drawing.clicks {
+            let progress = Drawing.progress(of: click, at: now)
+            let radius = rect.height * (0.012 + 0.03 * progress)
+            let center = CGPoint(x: rect.minX + click.point.x * rect.width,
+                                 y: rect.minY + click.point.y * rect.height)
+            let ring = NSBezierPath(ovalIn: CGRect(x: center.x - radius, y: center.y - radius,
+                                                   width: radius * 2, height: radius * 2))
+            ring.lineWidth = rect.height * 0.006
+            NSColor.systemYellow.withAlphaComponent(0.9 * (1 - progress)).setStroke()
+            ring.stroke()
         }
     }
 
@@ -402,3 +461,4 @@ public final class DrawingToolbar: NSPanel {
     @objc private func clearStrokes() { drawing.clear() }
     @objc private func finish() { onDone?() }
 }
+

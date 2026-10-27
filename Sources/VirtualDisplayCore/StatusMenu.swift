@@ -44,6 +44,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         public var copyScreenshot: () -> Void = {}
         public var toggleRecording: () -> Void = {}
         public var toggleCursor: () -> Void = {}
+        public var toggleClickHighlight: () -> Void = {}
         public var toggleLoginItem: () -> Void = {}
         public var copyDiagnostics: () -> Void = {}
         public var openSettings: () -> Void = {}
@@ -72,6 +73,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     private let copyScreenshotItem: ActionMenuItem
     private let recordItem: ActionMenuItem
     private let cursorItem: ActionMenuItem
+    private let clickItem: ActionMenuItem
     private let loginItem: ActionMenuItem
     private let pluginsItem: ActionMenuItem
     private let reloadItem: ActionMenuItem
@@ -102,6 +104,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
                                     modifiers: [.control, .option, .command],
                                     handler: actions.toggleRecording)
         cursorItem = ActionMenuItem("Show Cursor in Share", handler: actions.toggleCursor)
+        clickItem = ActionMenuItem("Highlight Clicks in Share", handler: actions.toggleClickHighlight)
         loginItem = ActionMenuItem("Launch at Login", handler: actions.toggleLoginItem)
         pluginsItem = ActionMenuItem("Enable Plugins", handler: actions.togglePlugins)
         reloadItem = ActionMenuItem("Reload Plugins", handler: actions.reloadPlugins)
@@ -117,7 +120,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         [screenshotItem, copyScreenshotItem, recordItem].forEach(menu.addItem)
         menu.addItem(.separator())
-        [cursorItem, loginItem].forEach(menu.addItem)
+        [cursorItem, clickItem, loginItem].forEach(menu.addItem)
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Settings...", key: ",", modifiers: [.command],
                                     handler: actions.openSettings))
@@ -246,6 +249,8 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         reloadItem.isEnabled = state.arePluginsEnabled
         cursorItem.isEnabled = true
         cursorItem.state = state.showsCursor ? .on : .off
+        clickItem.isEnabled = true
+        clickItem.state = state.highlightsClicks ? .on : .off
         loginItem.isEnabled = true
         loginItem.state = state.isLoginItemEnabled ? .on : .off
     }

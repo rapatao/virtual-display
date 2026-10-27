@@ -45,6 +45,7 @@ public struct Config: Codable, Equatable, Sendable {
         /// Only consulted for settings the user has never toggled in the menu; once
         /// toggled, their choice wins and stays in `defaults read`.
         public var showsCursor: Bool?
+        public var highlightClicks: Bool?
         public var editRegion: Bool?
         public var followFocus: Bool?
         public var lockAspect: Bool?
