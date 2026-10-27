@@ -5,3 +5,4 @@ VirtualDisplay.iconset/
 VirtualDisplay.icns
 *.zip
 .DS_Store
+signing.env

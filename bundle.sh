@@ -4,6 +4,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Local signing settings, written by setup-signing.sh and never committed. A variable
+# already in the environment wins, so CI and one-off overrides behave as before.
+if [ -z "${VD_SIGN_ID:-}" ] && [ -f signing.env ]; then
+    source signing.env
+fi
+
 APP="VirtualDisplay.app"
 VERSION="${VD_VERSION:-0.0.0}"
 
@@ -58,10 +64,10 @@ PLIST
 
 # Ad-hoc signing pins the TCC grant to the binary's cdhash, so every rebuild reads as a
 # new app and macOS asks for Screen Recording again. Sign with a stable self-signed
-# identity to keep the grant across rebuilds:
+# identity to keep the grant across rebuilds: ./setup-signing.sh picks one from the
+# keychain, or create one first with
 #   Keychain Access > Certificate Assistant > Create a Certificate...
 #     name: Virtual Display Dev, type: Code Signing, self-signed
-#   VD_SIGN_ID="Virtual Display Dev" ./bundle.sh
 if [ -z "${VD_SIGN_ID:-}" ]; then
     codesign --force --sign - "$APP"
     echo "built $APP (ad-hoc signed)"

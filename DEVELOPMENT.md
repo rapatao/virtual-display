@@ -37,14 +37,24 @@ macOS records that requirement when you grant Screen Recording and matches later
 against it, so **every rebuild is a new app and asks for permission again** - and so is
 every release, for everyone who installed the last one.
 
-Signing with any stable identity fixes it:
+Signing with any stable identity fixes it. Once per clone:
+
+```sh
+./setup-signing.sh
+```
+
+It picks a code signing identity from your keychain, asking when there is more than one,
+and writes it to `signing.env`. That file is gitignored, and `bundle.sh` reads it on every
+run. Without it, `bundle.sh` signs ad-hoc as before.
+
+`VD_SIGN_ID` set in the environment takes precedence over the file, which is how CI and
+one-off builds pick an identity:
 
 ```sh
 VD_SIGN_ID="Apple Development: you@example.com (XXXXXXXXXX)" ./bundle.sh
 ```
 
-`security find-identity -v -p codesigning` lists what you have. Put the export in your
-shell profile and plain `./bundle.sh` picks it up.
+`security find-identity -v -p codesigning` lists what you have.
 
 For an Apple-issued certificate the script goes one step further and pins the requirement
 to the **team**, not to the certificate:
@@ -117,6 +127,7 @@ unit tested; an executable target cannot be imported by a test target.
 | `Sources/CLua/` | Lua 5.4.8, vendored verbatim. See its `README.md` |
 | `Sources/VirtualDisplayCore/Diagnostics.swift` | The `--doctor` report |
 | `bundle.sh` | Release build, icon generation, `.app` assembly, code signing |
+| `setup-signing.sh` | Writes the local, uncommitted `signing.env` that `bundle.sh` signs with |
 | `makeicon.swift` | Draws `VirtualDisplay.iconset` from vectors |
 
 ## How it fits together
