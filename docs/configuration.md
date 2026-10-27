@@ -22,7 +22,7 @@ All of these live outside the app bundle, so upgrades leave them alone.
 | --- | --- |
 | Presets | Your presets. **Add Current Size** / **Add Current Region** capture the region, without or with its position |
 | Output | The [output size](#output-size), [aspect lock](usage.md#aspect-lock), freeze on pause, and opening the output window off screen |
-| Shortcuts | Click one, press the keys. Escape cancels, Delete clears |
+| Shortcuts | Click one, press the keys. Escape cancels, Delete clears. The last row binds any [command](automation.md#commands-and-the-url-scheme), with arguments in URL query form |
 | Follow | The [Follow Focused Window](usage.md#follow-focused-window) switch and the apps it skips. **Add App** picks from running apps |
 | Privacy | The [apps hidden from the share](usage.md#hidden-apps) |
 | Captures | Screenshot and recording folders, and microphone audio |

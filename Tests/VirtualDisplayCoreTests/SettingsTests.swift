@@ -76,6 +76,26 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(model.config.hotkeys, ["cmd-shift-f5": "screenshot"])
     }
 
+    func testCustomBindingsCarryTheirArguments() {
+        let model = model()
+        model.bind("ctrl-opt-cmd-1", to: "set-size", arguments: " ?width=1280&height=720 ")
+        model.bind("ctrl-opt-cmd-b", to: "snap-to-window-below", arguments: "")
+        XCTAssertEqual(model.config.hotkeys, ["ctrl-opt-cmd-1": "set-size?width=1280&height=720",
+                                              "ctrl-opt-cmd-b": "snap-to-window-below"])
+    }
+
+    func testCommandsAreDescribedByTheirSummary() {
+        var environment = SettingsWindow.Environment()
+        environment.commands = { [("set-size", "Resize the region: width= and height="),
+                                  ("toggle-pause", "Pause or resume")] }
+        let model = SettingsModel(environment: environment)
+        XCTAssertEqual(model.describe("set-size?width=1").title, "Resize the region")
+        XCTAssertEqual(model.describe("set-size").arguments, "width= and height=")
+        XCTAssertEqual(model.describe("toggle-pause").title, "Pause or resume")
+        XCTAssertNil(model.describe("toggle-pause").arguments)
+        XCTAssertEqual(model.describe("unknown").title, "unknown")
+    }
+
     func testUnbindingRemovesIt() {
         var config = Config()
         config.hotkeys = ["ctrl-opt-cmd-s": "screenshot"]

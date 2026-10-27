@@ -319,6 +319,22 @@ final class SettingsModel: ObservableObject {
         commit()
     }
 
+    /// Any command, with arguments in the query form `config.json` takes.
+    func bind(_ spec: String, to command: String, arguments: String) {
+        let arguments = arguments.trimmingCharacters(in: CharacterSet.whitespaces.union(["?"]))
+        bind(spec, to: arguments.isEmpty ? command : "\(command)?\(arguments)")
+    }
+
+    /// A command's summary split into a title and, after the colon, the arguments it
+    /// takes. `command` may carry a query, as `config.json` hotkeys do.
+    func describe(_ command: String) -> (title: String, arguments: String?) {
+        let name = String(command.prefix(while: { $0 != "?" }))
+        guard let summary = commandCatalog.first(where: { $0.name == name })?.summary,
+              !summary.isEmpty else { return (name, nil) }
+        guard let colon = summary.range(of: ": ") else { return (summary, nil) }
+        return (String(summary[..<colon.lowerBound]), String(summary[colon.upperBound...]))
+    }
+
     func unbind(_ spec: String) {
         config.hotkeys[spec] = nil
         commit()
@@ -616,7 +632,8 @@ private struct ShortcutsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Click a shortcut and press the keys you want. Recording a shortcut for "
-                 + "an action replaces its default.")
+                 + "an action replaces its default. The last row binds any command, with "
+                 + "arguments in URL query form.")
                 .font(.callout).foregroundStyle(.secondary)
 
             ScrollView {
@@ -637,20 +654,61 @@ private struct ShortcutsTab: View {
                     let custom = model.config.hotkeys
                         .filter { pair in !builtIns.contains { $0.0 == pair.value } }
                         .sorted { $0.key < $1.key }
-                    if !custom.isEmpty {
-                        Divider().padding(.vertical, 4)
-                        ForEach(custom, id: \.key) { spec, command in
-                            HStack {
-                                Text(command).font(.system(.body, design: .monospaced))
-                                Spacer()
-                                Text(spec).foregroundStyle(.secondary)
-                                Button("Remove") { model.unbind(spec) }
+                    Divider().padding(.vertical, 4)
+                    ForEach(custom, id: \.key) { spec, command in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(model.describe(command).title)
+                                Text(command).font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
                             }
+                            Spacer()
+                            ShortcutField(
+                                spec: spec,
+                                placeholder: spec,
+                                onRecord: { model.bind($0, to: command) },
+                                onClear: { model.unbind($0) },
+                                setSuspended: { model.environment.setShortcutsSuspended($0) })
+                            Button("Remove") { model.unbind(spec) }
                         }
                     }
+                    addRow
                 }
                 .padding(.trailing, 4)
             }
+        }
+    }
+
+    @State private var newCommand = "set-size"
+    @State private var newArguments = ""
+
+    private var addRow: some View {
+        let hint = model.describe(newCommand).arguments
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Picker("", selection: $newCommand) {
+                    ForEach(model.commandCatalog
+                        .map { (name: $0.name, title: model.describe($0.name).title) }
+                        .sorted { $0.title < $1.title }, id: \.name) {
+                        Text($0.title).tag($0.name)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                Spacer()
+                ShortcutField(
+                    spec: nil,
+                    placeholder: "Record shortcut",
+                    onRecord: {
+                        model.bind($0, to: newCommand, arguments: newArguments)
+                        newArguments = ""
+                    },
+                    onClear: { _ in },
+                    setSuspended: { model.environment.setShortcutsSuspended($0) })
+            }
+            TextField(hint ?? "No arguments", text: $newArguments)
+            Text(newCommand).font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
         }
     }
 }
