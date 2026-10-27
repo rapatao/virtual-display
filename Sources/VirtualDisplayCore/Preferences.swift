@@ -11,6 +11,7 @@ public enum Preferences {
         case editRegion
         case followFocus
         case showsCursor
+        case highlightClicks
         case lockAspect
         case parkOutputWindow
         case didRequestScreenRecordingAccess
@@ -29,6 +30,7 @@ public enum Preferences {
         public var isEditingRegion = true
         public var followsFocus = false
         public var showsCursor = true
+        public var highlightsClicks = false
         public var locksAspect = false
         public init() {}
     }
@@ -59,6 +61,11 @@ public enum Preferences {
     public static var showsCursor: Bool {
         get { bool(.showsCursor, default: fallbacks.showsCursor) }
         set { set(newValue, .showsCursor) }
+    }
+
+    public static var highlightsClicks: Bool {
+        get { bool(.highlightClicks, default: fallbacks.highlightsClicks) }
+        set { set(newValue, .highlightClicks) }
     }
 
     /// Holds the region to the output canvas's shape, so nothing is letterboxed.

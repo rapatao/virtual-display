@@ -15,6 +15,8 @@ public struct AppState: Equatable, Sendable, Codable {
     /// The region tracks the window you are working in, wherever it goes.
     public var followsFocus = false
     public var showsCursor = true
+    /// A fading ring marks each click inside the region, in the share only.
+    public var highlightsClicks = false
     /// The region is held to the output canvas's aspect ratio, so nothing is letterboxed.
     public var locksRegionAspect = false
     /// The region covers more than one display, which capture cannot do. Read off the
@@ -37,6 +39,9 @@ public struct AppState: Equatable, Sendable, Codable {
 
     /// Capture runs exactly here. Every other path sets state and lets this decide.
     public var isCapturing: Bool { isMirroring && !isPaused }
+
+    /// Clicks are only watched while there is a share to mark them in.
+    public var isHighlightingClicks: Bool { highlightsClicks && isCapturing }
 
     /// The output window exists solely to be shared, so it follows mirroring rather than
     /// being managed by hand. Pause deliberately keeps it up: hiding it would drop the
