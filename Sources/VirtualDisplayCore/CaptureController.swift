@@ -24,11 +24,15 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
     public struct Source {
         public var regionFrame: () -> CGRect
         public var regionScreen: () -> NSScreen?
+        /// Asked with an app's name and bundle id whether its windows stay out of the share.
+        public var excludesApp: (_ name: String, _ bundleID: String) -> Bool
 
         public init(regionFrame: @escaping () -> CGRect,
-                    regionScreen: @escaping () -> NSScreen?) {
+                    regionScreen: @escaping () -> NSScreen?,
+                    excludesApp: @escaping (_ name: String, _ bundleID: String) -> Bool = { _, _ in false }) {
             self.regionFrame = regionFrame
             self.regionScreen = regionScreen
+            self.excludesApp = excludesApp
         }
     }
 
@@ -130,8 +134,9 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
         pushConfiguration()
     }
 
-    /// The region landed on a different display, so the filter itself is stale.
-    public func screenChanged() {
+    /// The region landed on a different display, or the apps kept out of the share
+    /// changed, so the filter itself is stale.
+    public func filterChanged() {
         guard let stream else { return }
         Task {
             guard let filter = try? await makeFilter() else { return }
@@ -167,11 +172,13 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
 
         // Every window this app owns is excluded: the region frame and the output window,
         // which would recurse the mirror into itself, and the alerts, settings window and
-        // shortcut HUD that can sit over the region.
-        let mine = content.applications.filter {
+        // shortcut HUD that can sit over the region. The filter names running apps, so an
+        // excluded app launched later needs the filter rebuilt.
+        let hidden = content.applications.filter {
             $0.processID == ProcessInfo.processInfo.processIdentifier
+                || source.excludesApp($0.applicationName, $0.bundleIdentifier)
         }
-        return SCContentFilter(display: target, excludingApplications: mine, exceptingWindows: [])
+        return SCContentFilter(display: target, excludingApplications: hidden, exceptingWindows: [])
     }
 
     private func currentSourceRect() -> CGRect {

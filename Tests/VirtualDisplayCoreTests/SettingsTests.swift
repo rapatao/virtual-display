@@ -88,13 +88,13 @@ final class SettingsModelTests: XCTestCase {
     /// already on it is noise, not a new rule.
     func testFollowIgnoresAreAddedOnceAndRemovable() {
         let model = model()
-        model.addFollowIgnore("Slack")
-        model.addFollowIgnore("slack")
-        model.addFollowIgnore("  ")
+        model.addApp("Slack", to: \.followIgnores)
+        model.addApp("slack", to: \.followIgnores)
+        model.addApp("  ", to: \.followIgnores)
         XCTAssertEqual(model.config.followIgnores, ["Slack"])
 
-        model.addFollowIgnore("zoom.us")
-        model.removeFollowIgnores(IndexSet(integer: 0))
+        model.addApp("zoom.us", to: \.followIgnores)
+        model.removeApps(IndexSet(integer: 0), from: \.followIgnores)
         XCTAssertEqual(model.config.followIgnores, ["zoom.us"])
         XCTAssertEqual(saved.count, 3, "every edit writes the file; there is no Save button")
     }
