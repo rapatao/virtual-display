@@ -107,6 +107,7 @@ unit tested; an executable target cannot be imported by a test target.
 | `Sources/VirtualDisplayCore/KeySpec.swift` | `"ctrl-opt-cmd-r"` into a Carbon key code |
 | `Sources/VirtualDisplayCore/LuaRuntime.swift` | The plugin interpreter and the `vd` API |
 | `Sources/VirtualDisplayCore/Overlay.swift` | Text, images and rectangles drawn over the shared window |
+| `Sources/VirtualDisplayCore/Drawing.swift` | Strokes drawn over the region, the views that show them, and the drawing toolbar |
 | `Sources/VirtualDisplayCore/HUD.swift` | The one-second confirmation a global shortcut leaves on screen |
 | `Sources/VirtualDisplayCore/Fetch.swift` | The one outbound HTTP path, for `vd.fetch` |
 | `Sources/VirtualDisplayCore/UpdateCheck.swift` | The manual "is there a newer release" check behind the About tab |

@@ -111,4 +111,12 @@ final class AppStateTests: XCTestCase {
     func testPauseIsNotOfferableWithNothingRunning() {
         XCTAssertFalse(AppState().canPause)
     }
+
+    func testDrawingShowsTheRegionWithoutMirroring() {
+        var state = AppState()
+        state.isEditingRegion = false
+        XCTAssertFalse(state.showsRegionWindow)
+        state.isDrawing = true
+        XCTAssertTrue(state.showsRegionWindow)
+    }
 }

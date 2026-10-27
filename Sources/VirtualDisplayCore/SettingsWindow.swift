@@ -600,13 +600,14 @@ private struct OutputTab: View {
 private struct ShortcutsTab: View {
     @ObservedObject var model: SettingsModel
 
-    /// The four the app registers itself, and what they do. Anything else in the file is
+    /// The ones the app registers itself, and what they do. Anything else in the file is
     /// listed underneath as a custom binding.
     private let builtIns = [
         ("toggle-mirroring", "Toggle mirroring", "ctrl-opt-cmd-m"),
         ("toggle-pause", "Toggle pause", "ctrl-opt-cmd-p"),
         ("screenshot", "Take screenshot", "ctrl-opt-cmd-s"),
         ("toggle-recording", "Start or stop recording", "ctrl-opt-cmd-r"),
+        ("toggle-draw", "Draw over the region", "ctrl-opt-cmd-d"),
     ]
 
     var body: some View {

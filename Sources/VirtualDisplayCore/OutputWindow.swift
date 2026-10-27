@@ -33,10 +33,13 @@ public final class OutputWindow: NSWindow {
     /// Whatever plugins drew on top. It lives in this window because this window is what
     /// the meeting shares: no compositing into the capture pipeline is needed.
     public let overlay: OverlayView
+    public let drawing: DrawingView?
 
-    init(sink: VideoSink = VideoSink(), overlay: OverlayView = OverlayView()) {
+    init(sink: VideoSink = VideoSink(), overlay: OverlayView = OverlayView(),
+         drawing: DrawingView? = nil) {
         self.sink = sink
         self.overlay = overlay
+        self.drawing = drawing
         // Placeholder size: canvasChanged sets the real one once the canvas is known.
         //
         // No .miniaturizable: a minimised window reports onscreen=false and drops
@@ -80,6 +83,11 @@ public final class OutputWindow: NSWindow {
         // Overlay above the video, and it never hit-tests, so the window still behaves.
         content.addSubview(video)
         content.addSubview(overlay)
+        if let drawing {
+            drawing.frame = content.bounds
+            drawing.autoresizingMask = [.width, .height]
+            content.addSubview(drawing)
+        }
         contentView = content
 
         setFrameUsingName("OutputWindow")

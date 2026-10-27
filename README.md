@@ -80,6 +80,7 @@ presence; turn mirroring off and it goes back to tray-only.
 | **Mirroring** | Starts and stops capture, and opens/closes the output window. `Ctrl Opt Cmd M`. Disabled while permission is missing. |
 | **Pause** | Blanks the share without closing the output window, so the meeting keeps it selected. `Ctrl Opt Cmd P`. |
 | **Edit Region** | On: the frame is red, draggable and resizable. Off: green and click-through. |
+| **Draw** | Draw over the region, see [Drawing](#drawing). `Ctrl Opt Cmd D`. |
 | **Follow Focused Window** | The region jumps to the front window of whatever app you switch to, see below. |
 | **Lock Region Aspect** | Holds the region to the shape of the [output canvas](#output-size), so nothing is letterboxed. |
 | **Region Presets** | Size and position presets, see below. |
@@ -102,6 +103,7 @@ presence; turn mirroring off and it goes back to tray-only.
 | `Ctrl Opt Cmd P` | Toggle pause |
 | `Ctrl Opt Cmd S` | Take a screenshot |
 | `Ctrl Opt Cmd R` | Start or stop recording |
+| `Ctrl Opt Cmd D` | Toggle drawing |
 
 These are global: they work while another app is focused. They are registered through
 Carbon's `RegisterEventHotKey`, which unlike an `NSEvent` global monitor needs no
@@ -110,6 +112,29 @@ Accessibility permission.
 Binding one of these combinations in `config.json` overrides the default: config shortcuts
 are registered first, and the built-in then does not claim the key. The action keeps its
 menu item either way. See [Customising](#customising-without-a-new-release).
+
+### Drawing
+
+**Draw** turns the region frame orange and makes it take the mouse, so you can draw on the
+region. The strokes show on your screen and in the output window, so the meeting sees them,
+and so do screenshots and recordings. Windows under the region cannot be clicked while you
+draw. Draw works with mirroring off as well, and it turns **Edit Region** off, since both
+need the mouse.
+
+A toolbar sits above the region while you draw:
+
+| Control | Does |
+| --- | --- |
+| Pen / Highlighter / Laser | Laser until you pick another. The pen draws solid lines. The highlighter draws wide, see-through ones. Laser lines fade about 1.5 seconds after you let go. |
+| Swatches and colour well | The ink colour. The colour well opens the system colour picker. |
+| Width | Line width in points, 1 to 20, from the slider or typed into the field. The dot beside it shows how wide and what colour the next stroke will be. |
+| Undo | Removes the last stroke, the same as `Cmd Z`. Laser strokes are skipped. |
+| Clear | Removes every stroke |
+| Close | Stops drawing |
+
+`Esc` also stops drawing, and leaving draw mode removes every stroke. The tool, colour and
+width you last used are remembered. A stroke is stored relative to the region, so it moves
+and scales with the region rather than staying on whatever was under it.
 
 ### Screenshots and recording
 
@@ -359,6 +384,8 @@ open 'virtualdisplay://set-region?x=100&y=100&w=960&h=540'
 | `toggle-mirroring`, `set-mirroring` | `on=true\|false` |
 | `toggle-pause`, `set-pause` | `on=` |
 | `toggle-edit-region`, `set-edit-region` | `on=` |
+| `toggle-draw`, `set-draw` | `on=` |
+| `undo-drawing`, `clear-drawing` | |
 | `toggle-follow-focus`, `set-follow-focus` | `on=` |
 | `toggle-aspect-lock`, `set-aspect-lock` | `on=` |
 | `set-size` | `name=<preset prefix>`, or `width=` and `height=` |
@@ -472,7 +499,7 @@ process can rewrite must not be loaded.
 | --- | --- |
 | `vd.command(name, args)` | Runs any command. Returns its result, or `nil, message` |
 | `vd.register(name, fn)` | Adds a command, reachable from `virtualdisplay://` too, and listed in Settings > Automation like any other |
-| `vd.on(event, fn)` | `mirroring`, `pause`, `edit_region`, `follow_focus`, `region_moved`, `capture_failed`, `menu_will_open` |
+| `vd.on(event, fn)` | `mirroring`, `pause`, `edit_region`, `draw`, `follow_focus`, `region_moved`, `capture_failed`, `menu_will_open` |
 | `vd.hotkey(spec, fn)` | Global shortcut, same spec format as the config file |
 | `vd.menu(title, fn)` | Adds a menu bar item |
 | `vd.preset(name, width, height)` | Adds a region preset |
@@ -642,13 +669,14 @@ Stored in `UserDefaults` under `com.rapatao.virtual-display`:
 | `enablePlugins` | Enable Plugins toggle. Absent means off |
 | `requireAutomationToken` | The [token requirement](#the-automation-token). Absent means on |
 | `automationToken` | The token itself, made the first time it is needed |
+| `drawTool`, `drawColor`, `drawWidth` | The last [drawing](#drawing) tool, colour (`#rrggbbaa`) and line width in points |
 | `automationGrants` | The per-command rule by name (`deny`, `alwaysAsk`, `askOnce`, `allow`, `acceptWithoutToken`); absent means Default |
 
 Deleting the domain regenerates the token, so scripts carrying the old one stop working.
 
-Mirroring and pause are deliberately **not** persisted; the app always starts with capture
-off and unpaused. Launch at Login lives in macOS, not here, so `defaults delete` will not
-clear it - turn it off from the menu.
+Mirroring, pause and drawing are deliberately **not** persisted; the app always starts with
+capture off, unpaused and not drawing. Launch at Login lives in macOS, not here, so
+`defaults delete` will not clear it - turn it off from the menu.
 
 Inspect or reset:
 

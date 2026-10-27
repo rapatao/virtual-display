@@ -1,17 +1,18 @@
 import AppKit
 
-/// Draws the region outline. Red while editing, green while locked.
+/// Draws the region outline. Red while editing, orange while drawing, green while locked.
 final class BorderView: NSView {
     var isEditing = true { didSet { needsDisplay = true } }
+    var isDrawing = false { didSet { needsDisplay = true } }
 
     override func draw(_ dirtyRect: NSRect) {
-        if isEditing {
+        if isEditing || isDrawing {
             // A non-zero alpha is what makes the interior hit-testable, so the whole
             // frame is draggable while editing. Locked mode leaves it fully clear.
             NSColor.white.withAlphaComponent(0.08).setFill()
             bounds.fill()
         }
-        (isEditing ? NSColor.systemRed : NSColor.systemGreen).setStroke()
+        (isDrawing ? NSColor.systemOrange : isEditing ? NSColor.systemRed : NSColor.systemGreen).setStroke()
         let path = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
         path.lineWidth = 2
         path.stroke()
@@ -27,6 +28,7 @@ final class BorderView: NSView {
 public final class RegionWindow: NSWindow, NSWindowDelegate {
 
     private let border = BorderView()
+    public let drawingView: DrawingView
 
     /// The region moved or resized: the capture rectangle needs recomputing.
     public var onFrameChanged: (() -> Void)?
@@ -36,7 +38,15 @@ public final class RegionWindow: NSWindow, NSWindowDelegate {
     public var isEditing: Bool = true {
         didSet {
             border.isEditing = isEditing
-            ignoresMouseEvents = !isEditing
+            ignoresMouseEvents = !(isEditing || isDrawing)
+        }
+    }
+
+    public var isDrawing: Bool = false {
+        didSet {
+            border.isDrawing = isDrawing
+            drawingView.acceptsInput = isDrawing
+            ignoresMouseEvents = !(isEditing || isDrawing)
         }
     }
 
@@ -60,7 +70,8 @@ public final class RegionWindow: NSWindow, NSWindowDelegate {
         }
     }
 
-    public init() {
+    public init(drawing: Drawing) {
+        drawingView = DrawingView(drawing: drawing)
         super.init(contentRect: NSRect(x: 200, y: 200, width: 960, height: 540),
                    styleMask: [.titled, .resizable, .fullSizeContentView],
                    backing: .buffered,
@@ -77,6 +88,9 @@ public final class RegionWindow: NSWindow, NSWindowDelegate {
         isMovableByWindowBackground = true
         isReleasedWhenClosed = false
         minSize = NSSize(width: 160, height: 90)
+        drawingView.frame = border.bounds
+        drawingView.autoresizingMask = [.width, .height]
+        border.addSubview(drawingView)
         contentView = border
 
         // Restore before registering autosave, otherwise AppKit writes the default frame
