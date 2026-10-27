@@ -178,7 +178,7 @@ follows the content filter, and the filter is this app's own silent window.
 
 Anything a user might want to vary belongs in `config.json` or the `vd` API instead, so it
 does not need a release. See
-[Customising](README.md#customising-without-a-new-release).
+[Customising](docs/configuration.md#customising-without-a-new-release).
 
 ## Changing the icon
 
