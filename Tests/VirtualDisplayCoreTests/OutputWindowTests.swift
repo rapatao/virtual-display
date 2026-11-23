@@ -113,6 +113,16 @@ final class OutputWindowDisplayTests: XCTestCase {
         XCTAssertEqual(window.constrainFrameRect(screen.frame, to: nil), screen.frame)
     }
 
+    func testShowOrdersTheDisplayWindowInWithoutTakingFocus() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let window = OutputWindow(displayScreen: screen)
+        window.show()
+        defer { window.orderOut(nil) }
+        XCTAssertTrue(window.isVisible)
+        XCTAssertFalse(window.isKeyWindow)
+        XCTAssertFalse(window.isMainWindow)
+    }
+
     func testRefitRestoresTheScreenFrame() throws {
         let screen = try XCTUnwrap(NSScreen.main)
         let window = OutputWindow(displayScreen: screen)

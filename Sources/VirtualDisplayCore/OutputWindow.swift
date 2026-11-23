@@ -115,6 +115,14 @@ public final class OutputWindow: NSWindow {
         }
     }
 
+    /// Puts the window on screen without making it key or activating the app. A window on
+    /// its own display has to be ordered in regardless: a plain `orderFront` of a window
+    /// created while another app is active can leave it off screen, and a display with
+    /// nothing on screen is not offered by a share picker.
+    public func show() {
+        if displayScreen == nil { orderFront(nil) } else { orderFrontRegardless() }
+    }
+
     /// Fills the display again after its size or position changed. No-op for a window.
     public func refitToDisplay() {
         guard let displayScreen else { return }

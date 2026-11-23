@@ -869,7 +869,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         if state.showsOutputWindow {
             if let outputWindow {
                 outputWindow.contentView?.isHidden = false
-                outputWindow.orderFront(nil)
+                outputWindow.show()
             } else if virtualScreen == nil {
                 openOutputWindow()
             }
@@ -883,7 +883,10 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         setWatchingClicks(state.isHighlightingClicks)
 
         let policy: NSApplication.ActivationPolicy = state.wantsDockIcon ? .regular : .accessory
-        if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
+            if state.showsOutputWindow { outputWindow?.show() }
+        }
 
         if state.isCapturing {
             guard !capture.isRunning else { return }
@@ -942,7 +945,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         let window = OutputWindow(sink: sink, overlay: overlay, drawing: outputDrawing,
                                   displayScreen: screen)
         window.canvasChanged()
-        window.orderFront(nil)
+        window.show()
         outputWindow = window
         moveRegionOffVirtualDisplay()
     }
@@ -971,6 +974,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         guard let virtualScreen, let window = outputWindow else { return }
         guard virtualScreen.isLost else {
             window.refitToDisplay()
+            window.show()
             return
         }
         stopRecordingIfRunning()
@@ -1167,6 +1171,17 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         if state.regionSpansDisplays {
             out.append("  WARNING: the region spans more than one display. Only the display"
                        + " it mostly covers is captured; move or shrink it.")
+        }
+        out.append("output window:")
+        if let window = outputWindow {
+            out.append("  visible: \(window.isVisible)"
+                       + " occlusion visible: \(window.occlusionState.contains(.visible))"
+                       + " on active space: \(window.isOnActiveSpace)")
+            out.append("  level: \(window.level.rawValue) screen: "
+                       + "\(window.screen?.displayID.map(String.init) ?? "none")"
+                       + " virtual display: \(virtualScreen.map { String($0.displayID) } ?? "none")")
+        } else {
+            out.append("  none")
         }
         return out.joined(separator: "\n")
     }
