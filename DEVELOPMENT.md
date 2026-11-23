@@ -106,7 +106,8 @@ unit tested; an executable target cannot be imported by a test target.
 | `Sources/VirtualDisplayCore/AppCoordinator.swift` | Owns the state, wires the pieces, handles actions |
 | `Sources/VirtualDisplayCore/CaptureController.swift` | The ScreenCaptureKit stream and nothing else |
 | `Sources/VirtualDisplayCore/RegionWindow.swift` | The floating frame: placement, presets, snapping |
-| `Sources/VirtualDisplayCore/OutputWindow.swift` | The shareable window and its frame sink |
+| `Sources/VirtualDisplayCore/OutputWindow.swift` | The shareable window, its frame sink, and the reveal and park of an off-screen window |
+| `Sources/VirtualDisplayCore/PickerWatch.swift` | Detects the strip Chrome's window picker draws, so a revealed window can park early |
 | `Sources/VirtualDisplayCore/VirtualScreen.swift` | The virtual display behind Share as a display: creation, the macOS version gate, and waiting for its screen |
 | `Sources/VirtualDisplayCore/StatusMenu.swift` | Menu bar item; renders `AppState`, decides nothing |
 | `Sources/VirtualDisplayCore/Geometry.swift` | Pure coordinate maths, no AppKit |
@@ -155,7 +156,7 @@ rebuilds the filter via `SCStream.updateContentFilter`. Frames arrive as
 and the screen. Choosing them differently (an `SCContentSharingPicker`, a second region)
 touches only the caller.
 
-### Share as a display
+### Share as a display (experimental)
 
 `VirtualScreen` creates the display through `Sources/CVirtualDisplay`. The shim is the only
 place the private classes are named: it looks each one up with `NSClassFromString`, checks
@@ -196,6 +197,12 @@ normal fallback path, not an error.
   `Geometry.clamp`. An overlapping rectangle is unchanged.
 - `screensChanged()` calls `stopRecordingIfRunning()` when the display is lost, before the
   window falls back.
+- While a revealed window waits to re-park, `OutputWindow` polls the window list every 0.5 s
+  for a picker banner (`PickerBanner.matches`: another process, status-bar layer, 300 to 600
+  by 40 to 100 points, on screen). `PickerWatch` parks the window early once one has been
+  seen and then missed on two polls in a row, no sooner than 2 s after the reveal. This
+  matches how Chrome 158 drew its picker banner in a recording and is likely to break when
+  that changes; the re-park timer is the fallback.
 
 The canvas everything is rendered at - the live mirror, screenshots and recordings - is
 `OutputCanvas.size`, set from `config.json` at launch and whenever the file changes.

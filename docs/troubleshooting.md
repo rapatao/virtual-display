@@ -12,14 +12,30 @@ clipboard and shows it. Without the GUI:
 ## "Virtual Display" is missing from the meeting's share list
 
 - In window mode, pick the **Window** tab, not Entire Screen / Display.
-- With [Share as a display](usage.md#share-as-a-display) on, pick the virtual display under
-  **Screen** instead.
-- In Chrome's system picker, the **Share** button may appear in the middle of the chosen
-  screen. If you cannot see it, check that screen, which can mean moving the pointer onto
-  the virtual display.
+- Quickest workaround, user-reported with Chrome: open `chrome://flags`, disable **Use
+  ScreenCaptureKit picker for stream selection**, and relaunch Chrome. That restores
+  Chrome's older list picker.
+- With that flag enabled, Chrome uses macOS's native picker. That picker was reported to be
+  click-to-pick: click a window on screen, then press **Share This Window**. In that picker
+  the output window was reported to be pickable only while its centre is on screen and not
+  covered. Before it was raised above the region frame, the region frame covered it and
+  prevented picking (observed). **Show Output Window** brings it on screen, and so does
+  mirroring start when **Show the window when mirroring starts** is on and the off-screen
+  setting is on.
+- With [Share as a display](usage.md#share-as-a-display) on (experimental), pick the virtual
+  display under **Screen** only if the picker lists it. In the native picker, the **Share**
+  button may appear in the middle of the chosen screen. If you cannot see it, check that
+  screen, which can mean moving the pointer onto the virtual display.
 - Mirroring must be on: the output window, or the virtual display in that mode, exists
   only then. Seeing the red/green region frame does not mean either is up.
 - In window mode, the output window must be at least partly on screen and not minimised.
+  A parked window comes back with **Show Output Window**, or at mirroring start when
+  **Show the window when mirroring starts** is on.
+- A window that opened off screen, when shown by **Show Output Window** or at mirroring
+  start, parks early once a strip like the one Chrome's window picker was observed to draw
+  has appeared and gone away (**Park the window when the picker closes**). If it does not
+  park then, the **Stays visible for** time applies. If it parks too early, turn that
+  setting off under **Settings... > Output**.
 
 In window mode, the output window must appear under `on-screen normal windows` with
 `onscreen=true`. If it does, the conferencing app is excluding it. If it appears only under
@@ -29,9 +45,10 @@ include a line ending in `VIRTUAL SCREEN`.
 
 | Window | Layer | Shareable |
 | --- | --- | --- |
-| Region frame (red/green rectangle) | 3, floating | **Never.** Pickers offer layer 0 only, and it is excluded from capture |
-| Output window (titled Virtual Display) | 0 | **Yes.** Pick this one |
-| Output window in display mode (fills the virtual display) | screen saver level | Pick the virtual display under **Screen** instead |
+| Region frame (red/green rectangle) | 3, floating | Not offered by the list picker, which offered layer 0 windows only (earlier observation). It is excluded from capture |
+| Output window (titled Virtual Display), at its normal level | 0 | **Yes** in the list picker. Pick this one |
+| Output window while revealed | 5, above the region frame and drawing toolbar | Reported pickable in Chrome's native picker while its centre is on screen and not covered |
+| Output window in display mode (fills the virtual display) | screen saver level | Not picked as a window. Pick the virtual display under **Screen**, if the picker lists it |
 
 ## An extra display appears, or the pointer lands on it
 

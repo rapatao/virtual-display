@@ -12,6 +12,7 @@ First-time setup is the [quick start](../README.md#quick-start) in the README.
 | **Allow Screen Recording...** | Only visible when permission is missing. Raises the system prompt on first use, then deep-links to the Settings pane. |
 | **Mirroring** | Starts and stops capture, and opens/closes the output window, or the virtual display when [Share as a display](#share-as-a-display) is on. Disabled while permission is missing. |
 | **Pause** | Blanks the share without closing the output window, so the meeting keeps it selected. |
+| **Show Output Window** | Puts the output window fully on screen, even one opened off screen, and in front, without focusing it. The window is 1:1 unless that is larger than the screen, in which case it is shrunk to fit. It is placed above the region frame and the drawing toolbar while shown. After the **Stays visible for** time in **Settings... > Output** (30 seconds by default) it returns to the normal level, and a window that opened off screen parks again; both wait while a mouse button is held down. For a window that opened off screen, with **Park the window when the picker closes** on (the default), it also parks once a strip like the one Chrome 158's window picker was observed to draw has appeared on screen and gone away, without waiting for that time. With **Show the window when mirroring starts** on (the default), an off-screen window is shown this way once when mirroring starts, then parks again. With [Share as a display](#share-as-a-display) on it only brings the window to the front. Only enabled while mirroring. |
 | **Edit Region** | On: the frame is red, draggable and resizable. Off: green and click-through. |
 | **Draw** | Draw over the region, see [Drawing](#drawing). |
 | **Follow Focused Window** | The region follows the front window, see [below](#follow-focused-window). |
@@ -55,7 +56,8 @@ feedback while another app is focused. The HUD is never captured.
 
 Rebind them in **Settings... > Shortcuts** or under `hotkeys` in
 [config.json](configuration.md#configjson). A binding there takes the key from the
-built-in; the action keeps its menu item.
+built-in; the action keeps its menu item. **Show Output Window** has no default shortcut;
+bind `show-output-window` there to give it one.
 
 ## Drawing
 
@@ -182,12 +184,27 @@ Entries match like `followIgnores`. Leaving the key out keeps the default;
 `"excludedApps": []` hides nothing, banners included. An app launched while mirroring is
 hidden as soon as it starts.
 
-## Share as a display
+## Share as a display (experimental)
 
 Off by default. With **Settings... > Output > Share as a display** on, mirroring creates a
-display named "Virtual Display" and shows the output full screen on it. A meeting offers
-that display under **Screen** in its share picker. Without the setting, the output is a
-window and is picked under **Window**.
+display named "Virtual Display" and shows the output full screen on it. The output window
+is the normal way to share, picked under **Window**. Share as a display is experimental:
+a share picker may or may not offer the display under **Screen**.
+
+Observed in Chrome (user-reported, not confirmed from the code):
+
+- With the flag **Use ScreenCaptureKit picker for stream selection** enabled at
+  `chrome://flags`, Chrome's picker did not list the virtual display. The flag's description
+  reads: "This feature opens a native picker in macOS 15+ to allow the selection of a window
+  or screen that will be captured." The native picker was reported to be click-to-pick:
+  click a window on screen, then press **Share This Window**.
+- Disabling the flag restores Chrome's older list picker. Whether that picker lists the
+  virtual display was not confirmed.
+- Chrome names the display "Screen 2" in its own list. macOS shows it as "Virtual Display"
+  in **System Settings > Displays**.
+- In the native picker, the output window was reported to be pickable only when its centre
+  is on screen and not covered. **Show Output Window** and the reveal at mirroring start
+  exist for that.
 
 - The display is 1x, not HiDPI, and exactly the output size in pixels: 1920 x 1080 by
   default, at 60 Hz. The picture is one canvas pixel per display pixel.
@@ -212,16 +229,16 @@ window and is picked under **Window**.
 - **Settings... > Output > Open the output window off screen** is ignored while this is on,
   and its toggle is disabled.
 - The setting takes effect the next time mirroring starts.
-- To pick it in Chrome's system picker, choose the virtual display under **Screen**. In that
-  picker the **Share** button may appear in the middle of the chosen screen. If you cannot
-  see it, check that screen, which can mean moving the pointer onto the virtual display.
+- In Chrome's list picker, the virtual display is the entry to look for under **Screen**,
+  if that picker lists it at all (see the observations above). In Chrome's native picker, the
+  **Share** button may appear in the middle of the chosen screen. If you cannot see it, check
+  that screen, which can mean moving the pointer onto the virtual display.
 - It needs macOS 14 through 27. Outside that range, or if the display cannot be created,
   or if it does not appear within about 2 seconds, or if it goes offline, is mirrored onto
   another display, or becomes the main display during a session, the output window is used
   instead and the HUD says so. A recording in progress when the display goes offline, is
   mirrored, or becomes the main display is stopped and finalised as the window replaces it.
-  See
-  [Fallback to a window](troubleshooting.md#fallback-to-a-window).
+  See [Fallback to a window](troubleshooting.md#fallback-to-a-window).
 
 ## Behaviour notes
 
