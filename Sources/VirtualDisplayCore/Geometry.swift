@@ -19,6 +19,21 @@ public enum Geometry {
                height: r.height)
     }
 
+    /// A source rect that lies off the captured display would be rejected or captured
+    /// black, so it is pushed onto the display. Never larger than it was: the meeting must
+    /// not see more than the region chose.
+    public static func onDisplay(_ rect: CGRect, displaySize: CGSize) -> CGRect {
+        let bounds = CGRect(origin: .zero, size: displaySize)
+        let visible = rect.intersection(bounds)
+        return visible.isNull || visible.isEmpty ? clamp(rect, into: bounds) : rect
+    }
+
+    /// `clamp`, then back onto the aspect ratio when the region is locked to one.
+    public static func placed(_ proposed: CGRect, into visible: CGRect, aspect: CGSize?) -> CGRect {
+        let clamped = clamp(proposed, into: visible)
+        return aspect.map { fit(clamped, aspect: $0) } ?? clamped
+    }
+
     /// Inverse of `sourceRect` with a zero display origin: CGWindowList reports window
     /// bounds in display space, and `NSWindow.setFrame` wants AppKit space.
     public static func appKitRect(fromCG r: CGRect, primaryHeight: CGFloat) -> CGRect {

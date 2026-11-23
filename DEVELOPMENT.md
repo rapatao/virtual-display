@@ -107,6 +107,7 @@ unit tested; an executable target cannot be imported by a test target.
 | `Sources/VirtualDisplayCore/CaptureController.swift` | The ScreenCaptureKit stream and nothing else |
 | `Sources/VirtualDisplayCore/RegionWindow.swift` | The floating frame: placement, presets, snapping |
 | `Sources/VirtualDisplayCore/OutputWindow.swift` | The shareable window and its frame sink |
+| `Sources/VirtualDisplayCore/VirtualScreen.swift` | The virtual display behind Share as a display: creation, the macOS version gate, and waiting for its screen |
 | `Sources/VirtualDisplayCore/StatusMenu.swift` | Menu bar item; renders `AppState`, decides nothing |
 | `Sources/VirtualDisplayCore/Geometry.swift` | Pure coordinate maths, no AppKit |
 | `Sources/VirtualDisplayCore/Preferences.swift` | Persisted settings and the login item |
@@ -125,6 +126,7 @@ unit tested; an executable target cannot be imported by a test target.
 | `Sources/VirtualDisplayCore/Recording.swift` | Screenshots and `.mov` recording of the shared window |
 | `Sources/VirtualDisplayCore/SettingsWindow.swift` | The settings window; writes `config.json` |
 | `Sources/CLua/` | Lua 5.4.8, vendored verbatim. See its `README.md` |
+| `Sources/CVirtualDisplay/` | Objective-C shim over the private CoreGraphics virtual display classes, looked up by name at run time |
 | `Sources/VirtualDisplayCore/Diagnostics.swift` | The `--doctor` report |
 | `bundle.sh` | Release build, icon generation, `.app` assembly, code signing |
 | `setup-signing.sh` | Writes the local, uncommitted `signing.env` that `bundle.sh` signs with |
@@ -152,6 +154,48 @@ rebuilds the filter via `SCStream.updateContentFilter`. Frames arrive as
 `CaptureController` never reaches into a window: a `Source` struct supplies the rectangle
 and the screen. Choosing them differently (an `SCContentSharingPicker`, a second region)
 touches only the caller.
+
+### Share as a display
+
+`VirtualScreen` creates the display through `Sources/CVirtualDisplay`. The shim is the only
+place the private classes are named: it looks each one up with `NSClassFromString`, checks
+every selector before sending it, and returns NULL on any miss or exception, which
+`VirtualScreen` reports as nil. Apple can change or remove this API, so a nil result is the
+normal fallback path, not an error.
+
+- The mode is the canvas size in pixels at 1x (`setHiDPI:0`), 60 Hz. The descriptor is named
+  "Virtual Display", with vendor `0x5644` and product `0x0001`. `Diagnostics` recognises the
+  virtual screen by those two numbers.
+- `VirtualScreen.supportedMajorVersions` is 14...27. Outside it, `init(canvas:)` returns nil
+  before the API is touched.
+- `openOutputWindow()` creates the display when mirroring starts. `VirtualScreen.screen()`
+  waits up to 2 seconds for the display's `NSScreen`, and the output window is then built
+  with `OutputWindow`'s `displayScreen` set: borderless, at `screenSaver` level, ignoring the
+  mouse, and never parked.
+- A canvas change calls `apply(canvas:)`, which switches the mode in place.
+- `releaseVirtualScreen()` runs once the window has been blanked and closed in
+  `blankThenCloseOutputWindow()`, or from `render()` when mirroring is off and no window is
+  left.
+- `VirtualScreen.isLost(isOnline:isInMirrorSet:isMain:)` is true when `CGDisplayIsOnline` is
+  false, `CGDisplayIsInMirrorSet` is true, or `CGMainDisplayID()` is the display. The window
+  wait in `openOutputWindow()` checks `isLost` before showing the window on the display, and
+  reports "The virtual display did not appear" when it is set.
+- `screensChanged()` falls back to a window when `isLost` is true.
+- The region's screen goes through `VirtualScreen.capturable(_:excluding:)`, which returns nil
+  for the virtual display, and `makeFilter()` then targets `CGMainDisplayID()`.
+- `moveRegionOffVirtualDisplay()` runs from `showOutputWindow()`, from `screensChanged()`, and
+  from `scheduleSnapBack()`. `regionChanged()` arms `scheduleSnapBack()` with a 0.3 second
+  timer that re-arms itself while the left mouse button is down, so a region moved onto the
+  virtual display moves off it once the button is released. The move targets the screen
+  `VirtualScreen.realDisplayIndex` picks (the main display if real, else the first other real
+  screen), places the region with `Geometry.placed` (clamped inside that screen's visible
+  frame, then fitted to the aspect ratio when `regionWindow.lockedAspect` is set), then calls
+  `filterChanged()` and `regionChanged()`.
+- `currentSourceRect()` passes the rectangle through `Geometry.onDisplay`. A rectangle with no
+  overlap with the captured display is clamped onto it at its own size, through
+  `Geometry.clamp`. An overlapping rectangle is unchanged.
+- `screensChanged()` calls `stopRecordingIfRunning()` when the display is lost, before the
+  window falls back.
 
 The canvas everything is rendered at - the live mirror, screenshots and recordings - is
 `OutputCanvas.size`, set from `config.json` at launch and whenever the file changes.

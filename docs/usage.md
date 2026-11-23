@@ -10,7 +10,7 @@ First-time setup is the [quick start](../README.md#quick-start) in the README.
 | Item | Behaviour |
 | --- | --- |
 | **Allow Screen Recording...** | Only visible when permission is missing. Raises the system prompt on first use, then deep-links to the Settings pane. |
-| **Mirroring** | Starts and stops capture, and opens/closes the output window. Disabled while permission is missing. |
+| **Mirroring** | Starts and stops capture, and opens/closes the output window, or the virtual display when [Share as a display](#share-as-a-display) is on. Disabled while permission is missing. |
 | **Pause** | Blanks the share without closing the output window, so the meeting keeps it selected. |
 | **Edit Region** | On: the frame is red, draggable and resizable. Off: green and click-through. |
 | **Draw** | Draw over the region, see [Drawing](#drawing). |
@@ -182,26 +182,70 @@ Entries match like `followIgnores`. Leaving the key out keeps the default;
 `"excludedApps": []` hides nothing, banners included. An app launched while mirroring is
 hidden as soon as it starts.
 
+## Share as a display
+
+Off by default. With **Settings... > Output > Share as a display** on, mirroring creates a
+display named "Virtual Display" and shows the output full screen on it. A meeting offers
+that display under **Screen** in its share picker. Without the setting, the output is a
+window and is picked under **Window**.
+
+- The display is 1x, not HiDPI, and exactly the output size in pixels: 1920 x 1080 by
+  default, at 60 Hz. The picture is one canvas pixel per display pixel.
+- It joins your display arrangement, so it appears in **System Settings > Displays** and
+  the pointer can move onto it. The output window fills the display, has no border, stays
+  above other windows, the menu bar and the Dock, and ignores the mouse, so it cannot be
+  dragged or clicked.
+- The display exists only while mirroring. It is created when mirroring starts and removed
+  once the picture is blanked when mirroring stops. **Pause** keeps it. Changing the
+  [output size](configuration.md#output-size) resizes it in place.
+- A region on the virtual display is moved onto a real display when the output window is
+  shown on the virtual display, whenever the screen layout changes, and 0.3 seconds after
+  any move of the region onto it, once the mouse button is up. The check repeats every 0.3
+  seconds while the button is held. The target is the main display if it is real, otherwise the
+  first other real screen. The move keeps the region fully inside that screen's visible
+  area, shrinking it first if it is larger, and with Lock Region Aspect on, the region is
+  kept to the output's aspect ratio. While a region is dragged onto the virtual display,
+  capture targets the main display, and its rectangle is used as it lies on that display: a
+  rectangle that overlaps the main display is captured as it is, and one with no overlap is
+  moved onto the main display at its own size, or shrunk to fit if it is larger than the
+  display. Keep the region on a real display.
+- **Settings... > Output > Open the output window off screen** is ignored while this is on,
+  and its toggle is disabled.
+- The setting takes effect the next time mirroring starts.
+- To pick it in Chrome's system picker, choose the virtual display under **Screen**. In that
+  picker the **Share** button may appear in the middle of the chosen screen. If you cannot
+  see it, check that screen, which can mean moving the pointer onto the virtual display.
+- It needs macOS 14 through 27. Outside that range, or if the display cannot be created,
+  or if it does not appear within about 2 seconds, or if it goes offline, is mirrored onto
+  another display, or becomes the main display during a session, the output window is used
+  instead and the HUD says so. A recording in progress when the display goes offline, is
+  mirrored, or becomes the main display is stopped and finalised as the window replaces it.
+  See
+  [Fallback to a window](troubleshooting.md#fallback-to-a-window).
+
 ## Behaviour notes
 
 **The app's own windows are never captured.** The output window can overlap the region
 without an infinite mirror, and the frame, alerts, settings and HUD never reach the share.
 
 **The output window exists only while mirroring.** It is the thing the meeting shares, so
-turning mirroring off ends the share; re-enable and pick the window again. To hide
-something mid-call, use **Pause**: the window stays selected and the share goes black, or
-holds the last frame with **Freeze the last frame when paused** on.
+turning mirroring off ends the share; re-enable and pick it again. With
+[Share as a display](#share-as-a-display) on, the virtual display follows the same rule.
+To hide something mid-call, use **Pause**: the window stays selected and the share goes
+black, or holds the last frame with **Freeze the last frame when paused** on.
 
 **Size the output window 1:1.** It opens at one canvas pixel per screen pixel (960 x 540
 points for 1920x1080 on Retina). Meetings share the window's pixels, so a smaller window is
-shared upscaled and soft. It may sit behind other windows.
+shared upscaled and soft. It may sit behind other windows. With Share as a display on, the
+display is 1x and the window fills it, so there is nothing to size.
 
 **Never minimise it.** A minimised window is dropped from every share picker. It has no
 minimise button for that reason.
 
-**No title bar.** The picture goes edge to edge; drag the window by the picture. The window
-keeps the title "Virtual Display", which is what share pickers list. macOS rounds its top
-corners, which the meeting shows as a few black pixels.
+**No title bar.** In window mode the picture goes edge to edge; drag the window by the
+picture. The window keeps the title "Virtual Display", which is what a window picker lists.
+The display is named "Virtual Display" as well. In window mode macOS rounds the top corners
+of the window, which the meeting shows as a few black pixels.
 
 **The frame is independent of mirroring.** It shows while editing or mirroring, so you can
 place the region before a call.

@@ -11,6 +11,9 @@ public enum Diagnostics {
         out.append("build: \(version ?? "unknown")")
         out.append("macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)")
         out.append("screen recording (this process): \(CGPreflightScreenCaptureAccess())")
+        out.append("share as a display: \(Preferences.sharesAsDisplay ? "on" : "off"), "
+                   + "virtual display supported here: "
+                   + "\(VirtualScreen.isSupported(version: ProcessInfo.processInfo.operatingSystemVersion))")
 
         let apps = NSWorkspace.shared.runningApplications.filter {
             $0.bundleIdentifier == "com.rapatao.virtual-display"
@@ -40,11 +43,11 @@ public enum Diagnostics {
             for w in mine {
                 let b = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
                 let num = { (k: String) in Int((b[k] as? Double) ?? 0) }
-                // Layer 0 is the output window, the only one a picker can ever offer.
-                // The region frame is .floating, so it sits at layer 3.
                 let layer = w[kCGWindowLayer as String] as? Int ?? -1
-                let role = layer == 0 ? "OUTPUT WINDOW (the shareable one)"
-                                      : "region frame (never shareable)"
+                let isOutput = (w[kCGWindowName as String] as? String) == "Virtual Display"
+                    || layer == 0 || layer == Int(CGWindowLevelForKey(.screenSaverWindow))
+                let role = isOutput ? "OUTPUT WINDOW (the shareable one)"
+                                    : "region frame (never shareable)"
                 out.append("  \(role)")
                 out.append("  layer=\(w[kCGWindowLayer as String] as? Int ?? -1)"
                     + " onscreen=\(w[kCGWindowIsOnscreen as String] as? Bool ?? false)"
@@ -61,7 +64,11 @@ public enum Diagnostics {
         out.append("")
         out.append("screens:")
         for s in NSScreen.screens {
-            out.append("  \(s.frame) visible \(s.visibleFrame)")
+            let isVirtual = s.displayID.map {
+                CGDisplayVendorNumber($0) == VirtualScreen.vendorID
+                    && CGDisplayModelNumber($0) == VirtualScreen.productID
+            } ?? false
+            out.append("  \(s.frame) visible \(s.visibleFrame)" + (isVirtual ? " VIRTUAL SCREEN" : ""))
         }
         return out.joined(separator: "\n")
     }

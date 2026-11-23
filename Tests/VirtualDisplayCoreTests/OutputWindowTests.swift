@@ -64,6 +64,65 @@ final class OutputWindowSizeTests: XCTestCase {
 }
 
 @MainActor
+final class OutputWindowDisplayTests: XCTestCase {
+
+    func testFillsTheGivenScreenAsABorderlessWindow() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let window = OutputWindow(displayScreen: screen)
+        window.canvasChanged()
+
+        XCTAssertEqual(window.frame, screen.frame)
+        XCTAssertEqual(window.title, "Virtual Display")
+        XCTAssertEqual(window.styleMask, [.borderless])
+        XCTAssertEqual(window.level, OutputWindow.displayLevel)
+        XCTAssertGreaterThan(window.level.rawValue, NSWindow.Level.mainMenu.rawValue)
+        XCTAssertEqual(window.collectionBehavior, [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle])
+        XCTAssertEqual(window.frameAutosaveName, "")
+        XCTAssertFalse(window.canBecomeKey)
+        XCTAssertTrue(window.ignoresMouseEvents)
+    }
+
+    func testParkingIsIgnoredForAWindowOpenedWhileSharingAsADisplay() throws {
+        let savedCanvas = OutputCanvas.size
+        let savedPark = Preferences.parksOutputWindow
+        let savedShare = Preferences.sharesAsDisplay
+        defer {
+            OutputCanvas.size = savedCanvas
+            Preferences.parksOutputWindow = savedPark
+            Preferences.sharesAsDisplay = savedShare
+        }
+        OutputCanvas.size = CGSize(width: 320, height: 180)
+        Preferences.parksOutputWindow = true
+        Preferences.sharesAsDisplay = true
+
+        let window = OutputWindow()
+        let visible = try XCTUnwrap((window.screen ?? NSScreen.main)?.visibleFrame)
+        window.setFrameTopLeftPoint(NSPoint(x: visible.minX + 10, y: visible.maxY - 10))
+        window.canvasChanged()
+        XCTAssertTrue(visible.contains(window.frame))
+    }
+
+    func testIgnoresParkingAndKeepsItsFrame() throws {
+        let saved = Preferences.parksOutputWindow
+        defer { Preferences.parksOutputWindow = saved }
+        Preferences.parksOutputWindow = true
+        let screen = try XCTUnwrap(NSScreen.main)
+        let window = OutputWindow(displayScreen: screen)
+        window.canvasChanged()
+        XCTAssertEqual(window.frame, screen.frame)
+        XCTAssertEqual(window.constrainFrameRect(screen.frame, to: nil), screen.frame)
+    }
+
+    func testRefitRestoresTheScreenFrame() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let window = OutputWindow(displayScreen: screen)
+        window.setFrame(NSRect(x: 0, y: 0, width: 100, height: 100), display: false)
+        window.refitToDisplay()
+        XCTAssertEqual(window.frame, screen.frame)
+    }
+}
+
+@MainActor
 final class OutputWindowParkTests: XCTestCase {
 
     /// A picker drops a window with no part on a display, so a parked one keeps a corner.

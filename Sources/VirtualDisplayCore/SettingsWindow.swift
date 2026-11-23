@@ -529,6 +529,7 @@ private struct OptionalNumberField: View {
 private struct OutputTab: View {
     @ObservedObject var model: SettingsModel
     @AppStorage(Preferences.Key.parkOutputWindow.rawValue) private var parksOutputWindow = false
+    @AppStorage(Preferences.Key.shareAsDisplay.rawValue) private var sharesAsDisplay = false
 
     /// The sizes offered. A hand-edited `output` outside this list is added to it, so the
     /// picker always has the current value to select.
@@ -601,8 +602,21 @@ private struct OutputTab: View {
 
             Divider()
 
+            Toggle("Share as a display", isOn: $sharesAsDisplay)
+                .toggleStyle(.switch)
+            Text("Mirroring creates a virtual display and fills it with the output, so a "
+                 + "meeting offers it in the picker under Screen. It joins your display "
+                 + "arrangement, so the pointer can still move onto it. Needs macOS 14 to "
+                 + "27; where it is unavailable the output window opens instead. Takes "
+                 + "effect the next time mirroring starts.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Toggle("Open the output window off screen", isOn: $parksOutputWindow)
                 .toggleStyle(.switch)
+                .disabled(sharesAsDisplay)
             Text("Mirroring opens the output window past the bottom-right corner of the "
                  + "screen with only a corner showing, which is all a share picker needs. "
                  + "The meeting still gets the whole picture. Takes effect the next time "

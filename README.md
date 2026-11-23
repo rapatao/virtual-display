@@ -17,6 +17,8 @@ in, which covers a one-off share inside Zoom.
   [click highlights](docs/usage.md#menu-reference) the meeting can see
 - [Hidden apps](docs/usage.md#hidden-apps): notification banners and chosen apps never
   reach the share
+- [Share as a display](docs/usage.md#share-as-a-display), an opt-in virtual display that a
+  meeting offers under Screen instead of Window
 - [Screenshots and recording](docs/usage.md#screenshots-and-recording) of exactly what the
   meeting sees
 - [Global shortcuts](docs/usage.md#keyboard-shortcuts) that need no Accessibility permission
@@ -76,14 +78,17 @@ To build it yourself instead, see [DEVELOPMENT.md](DEVELOPMENT.md).
    automatically with mirroring. It can sit behind everything else or be dragged mostly
    off the edge of the display, and the meeting still gets the full picture; keep some of
    it on screen and never minimise it. **Settings > Output > Open the output window off
-   screen** does that for you, leaving only a corner showing at the bottom right.
+   screen** does that for you, leaving only a corner showing at the bottom right. To offer
+   the picture under Screen as a display of its own instead, turn on **Settings > Output >
+   Share as a display**, which ignores the off-screen setting; see
+   [Share as a display](docs/usage.md#share-as-a-display).
 5. Drag any window into the region. It is now on the call.
 
 ## Documentation
 
 | Page | Covers |
 | --- | --- |
-| [Usage](docs/usage.md) | The menu, shortcuts, drawing, captures, presets, follow mode, hidden apps, behaviour notes |
+| [Usage](docs/usage.md) | The menu, shortcuts, drawing, captures, presets, follow mode, hidden apps, share as a display, behaviour notes |
 | [Configuration](docs/configuration.md) | The settings window, output size, `config.json`, saved state |
 | [Automation](docs/automation.md) | The `virtualdisplay://` commands and the automation token |
 | [Plugins](docs/plugins.md) | The Lua `vd` API, overlays, HTTP |

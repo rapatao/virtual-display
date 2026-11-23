@@ -14,6 +14,7 @@ public enum Preferences {
         case highlightClicks
         case lockAspect
         case parkOutputWindow
+        case shareAsDisplay
         case didRequestScreenRecordingAccess
         case enablePlugins
         case requireAutomationToken
@@ -80,6 +81,13 @@ public enum Preferences {
     public static var parksOutputWindow: Bool {
         get { bool(.parkOutputWindow, default: false) }
         set { set(newValue, .parkOutputWindow) }
+    }
+
+    /// Mirrors onto a virtual display instead of a window, so a picker offers it under
+    /// Screen. Takes precedence over `parksOutputWindow`.
+    public static var sharesAsDisplay: Bool {
+        get { bool(.shareAsDisplay, default: false) }
+        set { set(newValue, .shareAsDisplay) }
     }
 
     /// Off until asked for, and deliberately so. A plugin is arbitrary code running inside

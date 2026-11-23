@@ -120,11 +120,15 @@ public struct Config: Codable, Equatable, Sendable {
         !disabledPlugins.contains(fileName)
     }
 
+    public static let maxCanvasDimension: Double = 7680
+
     /// The canvas, held to something the encoder accepts: 320 to 7680 points, and even
     /// numbers, which H.264 requires.
     public var canvasSize: CGSize {
         guard let output else { return OutputCanvas.standard }
-        let clamp = { (value: Double) in (min(max(value, 320), 7680) / 2).rounded(.down) * 2 }
+        let clamp = { (value: Double) in
+            (min(max(value, 320), Config.maxCanvasDimension) / 2).rounded(.down) * 2
+        }
         return CGSize(width: clamp(output.width), height: clamp(output.height))
     }
 

@@ -35,12 +35,24 @@ public final class OutputWindow: NSWindow {
     public let overlay: OverlayView
     public let drawing: DrawingView?
 
+    /// Set when the window fills a virtual display instead of sitting on the desktop.
+    private let displayScreen: NSScreen?
+
+    /// Above the menu bar and Dock, which separate Spaces put on every display.
+    static let displayLevel = NSWindow.Level.screenSaver
+
+    /// Parking is meaningless on a display of its own, and falling back to a window from
+    /// that mode should not move it off screen either.
+    private let parks: Bool
+
     init(sink: VideoSink = VideoSink(), overlay: OverlayView? = nil,
-         drawing: DrawingView? = nil) {
+         drawing: DrawingView? = nil, displayScreen: NSScreen? = nil) {
         let overlay = overlay ?? OverlayView()
         self.sink = sink
         self.overlay = overlay
         self.drawing = drawing
+        self.displayScreen = displayScreen
+        parks = Preferences.parksOutputWindow && !Preferences.sharesAsDisplay
         // Placeholder size: canvasChanged sets the real one once the canvas is known.
         //
         // No .miniaturizable: a minimised window reports onscreen=false and drops
@@ -52,24 +64,30 @@ public final class OutputWindow: NSWindow {
         // .fullSizeContentView plus a transparent, hidden title bar is what gets the video
         // into those top 28 points, so what the meeting sees is picture edge to edge with
         // no chrome, like a real display.
-        super.init(contentRect: NSRect(x: 100, y: 100, width: 320, height: 180),
-                   styleMask: [.titled, .resizable, .fullSizeContentView],
+        super.init(contentRect: displayScreen?.frame ?? NSRect(x: 100, y: 100, width: 320, height: 180),
+                   styleMask: displayScreen == nil ? [.titled, .resizable, .fullSizeContentView]
+                                                   : [.borderless],
                    backing: .buffered,
                    defer: false)
         title = "Virtual Display"
-        titlebarAppearsTransparent = true
-        titleVisibility = .hidden
-        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            standardWindowButton(button)?.isHidden = true
-        }
-        // The title bar was the drag handle; without it the picture itself has to be one.
-        isMovableByWindowBackground = true
-        // Behind the video: the rounded corners a titled window keeps are transparent
-        // otherwise, and a meeting renders that as whatever was underneath.
         backgroundColor = .black
-        // The canvas's shape, so the picture fills the window at any size.
-        contentAspectRatio = NSSize(width: OutputCanvas.size.width, height: OutputCanvas.size.height)
         isReleasedWhenClosed = false
+        if displayScreen == nil {
+            titlebarAppearsTransparent = true
+            titleVisibility = .hidden
+            for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                standardWindowButton(button)?.isHidden = true
+            }
+            // The title bar was the drag handle; without it the picture itself has to be one.
+            isMovableByWindowBackground = true
+            // The canvas's shape, so the picture fills the window at any size.
+            contentAspectRatio = NSSize(width: OutputCanvas.size.width, height: OutputCanvas.size.height)
+        } else {
+            level = Self.displayLevel
+            collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+            hasShadow = false
+            ignoresMouseEvents = true
+        }
 
         sink.layer.videoGravity = .resizeAspect
         sink.layer.backgroundColor = NSColor.black.cgColor
@@ -91,8 +109,17 @@ public final class OutputWindow: NSWindow {
         }
         contentView = content
 
-        setFrameUsingName("OutputWindow")
-        setFrameAutosaveName("OutputWindow")
+        if displayScreen == nil {
+            setFrameUsingName("OutputWindow")
+            setFrameAutosaveName("OutputWindow")
+        }
+    }
+
+    /// Fills the display again after its size or position changed. No-op for a window.
+    public func refitToDisplay() {
+        guard let displayScreen else { return }
+        let current = displayScreen.displayID.flatMap(VirtualScreen.screen(for:)) ?? displayScreen
+        if frame != current.frame { setFrame(current.frame, display: true) }
     }
 
     /// How much of a parked window stays on the display, in points: enough to be listed by
@@ -104,12 +131,15 @@ public final class OutputWindow: NSWindow {
     /// Clamped to the visible screen, keeping the canvas's shape, when that is too big,
     /// unless parked: a parked window is off screen anyway and stays 1:1 at any size.
     public func canvasChanged() {
+        if displayScreen != nil {
+            refitToDisplay()
+            return
+        }
         let canvas = OutputCanvas.size
         contentAspectRatio = NSSize(width: canvas.width, height: canvas.height)
         let screen = self.screen ?? NSScreen.main
         let scale = screen?.backingScaleFactor ?? 2
         var size = NSSize(width: canvas.width / scale, height: canvas.height / scale)
-        let parks = Preferences.parksOutputWindow
         if !parks, let visible = screen?.visibleFrame {
             let fit = min(1, visible.width / size.width, visible.height / size.height)
             size = NSSize(width: (size.width * fit).rounded(.down),
@@ -128,6 +158,6 @@ public final class OutputWindow: NSWindow {
     /// AppKit pulls a titled window back onto the screen when it is shown; a parked one
     /// has to stay where it was put.
     public override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        Preferences.parksOutputWindow ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+        parks || displayScreen != nil ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }
 }
