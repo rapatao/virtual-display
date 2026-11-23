@@ -15,6 +15,9 @@ public enum Preferences {
         case lockAspect
         case parkOutputWindow
         case shareAsDisplay
+        case revealOnStart
+        case revealSeconds
+        case parkWhenPickerCloses
         case didRequestScreenRecordingAccess
         case enablePlugins
         case requireAutomationToken
@@ -81,6 +84,29 @@ public enum Preferences {
     public static var parksOutputWindow: Bool {
         get { bool(.parkOutputWindow, default: false) }
         set { set(newValue, .parkOutputWindow) }
+    }
+
+    /// Shows a parked output window on screen when mirroring starts, then parks it again.
+    public static var revealsOnStart: Bool {
+        get { bool(.revealOnStart, default: true) }
+        set { set(newValue, .revealOnStart) }
+    }
+
+    /// Parks a revealed window as soon as the browser's window picker has come and gone.
+    public static var parksWhenPickerCloses: Bool {
+        get { bool(.parkWhenPickerCloses, default: true) }
+        set { set(newValue, .parkWhenPickerCloses) }
+    }
+
+    public static let revealSecondsRange = 5.0...300.0
+
+    /// How long a revealed output window stays on screen, held to `revealSecondsRange`.
+    public static var revealSeconds: Double {
+        get {
+            let stored = (defaults.object(forKey: Key.revealSeconds.rawValue) as? NSNumber)?.doubleValue
+            return min(max(stored ?? 30, revealSecondsRange.lowerBound), revealSecondsRange.upperBound)
+        }
+        set { defaults.set(newValue, forKey: Key.revealSeconds.rawValue) }
     }
 
     /// Mirrors onto a virtual display instead of a window, so a picker offers it under

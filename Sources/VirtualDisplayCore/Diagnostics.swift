@@ -50,6 +50,7 @@ public enum Diagnostics {
                 let name = (w[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 let isOutput = name.map { $0 == "Virtual Display" }
                     ?? (layer == Int(CGWindowLevelForKey(.screenSaverWindow))
+                        || layer == OutputWindow.revealedLevel.rawValue
                         || (layer == 0 && num("Height") > 100))
                 let role: String
                 if isOutput {

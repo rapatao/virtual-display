@@ -43,7 +43,10 @@ public final class OutputWindow: NSWindow {
 
     /// Parking is meaningless on a display of its own, and falling back to a window from
     /// that mode should not move it off screen either.
-    private let parks: Bool
+    private var parks: Bool
+    private let parksByDefault: Bool
+
+    private(set) var pendingRepark: DispatchWorkItem?
 
     init(sink: VideoSink = VideoSink(), overlay: OverlayView? = nil,
          drawing: DrawingView? = nil, displayScreen: NSScreen? = nil) {
@@ -52,7 +55,8 @@ public final class OutputWindow: NSWindow {
         self.overlay = overlay
         self.drawing = drawing
         self.displayScreen = displayScreen
-        parks = Preferences.parksOutputWindow && !Preferences.sharesAsDisplay
+        parksByDefault = Preferences.parksOutputWindow && !Preferences.sharesAsDisplay
+        parks = parksByDefault
         // Placeholder size: canvasChanged sets the real one once the canvas is known.
         //
         // No .miniaturizable: a minimised window reports onscreen=false and drops
@@ -121,6 +125,123 @@ public final class OutputWindow: NSWindow {
     /// nothing on screen is not offered by a share picker.
     public func show() {
         if displayScreen == nil { orderFront(nil) } else { orderFrontRegardless() }
+    }
+
+    /// Brings a window fully onto its screen, even one that opened parked, and orders it
+    /// front without making it key or activating the app. It keeps its 1:1 size and sits
+    /// above the region frame and the drawing toolbar until `Preferences.revealSeconds`
+    /// have passed, when it returns to the normal level and a window that opened parked
+    /// parks again. Revealing again restarts that wait. A window on a display only comes
+    /// to the front.
+    public func reveal() {
+        if displayScreen == nil {
+            let target = screen ?? NSScreen.main
+            level = Self.revealedLevel
+            parks = false
+            canvasChanged()
+            if let visible = target?.visibleFrame {
+                setFrameOrigin(Geometry.clamp(frame, into: visible).origin)
+            }
+            scheduleRepark()
+            startWatchingPicker()
+        }
+        orderFrontRegardless()
+    }
+
+    /// One above the drawing toolbar (floating + 1), which is one above the region frame
+    /// (floating), so a picker finds this window first under the pointer.
+    nonisolated static let revealedLevel = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 2)
+
+    static let reparkRetry: TimeInterval = 1
+
+    /// A press in progress could be a click on a picker's Share button or a drag, and
+    /// parking under it would interrupt either.
+    static func shouldPostponeRepark(pressedButtons: Int) -> Bool { pressedButtons != 0 }
+
+    func scheduleRepark(after delay: TimeInterval? = nil) {
+        pendingRepark?.cancel()
+        pendingRepark = nil
+        guard displayScreen == nil else { return }
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if Self.shouldPostponeRepark(pressedButtons: Int(NSEvent.pressedMouseButtons)) {
+                    self.scheduleRepark(after: Self.reparkRetry)
+                } else {
+                    self.repark()
+                }
+            }
+        }
+        pendingRepark = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + (delay ?? Preferences.revealSeconds),
+                                      execute: item)
+    }
+
+    static func shouldRevealOnStart(parked: Bool, onDisplay: Bool, enabled: Bool) -> Bool {
+        parked && !onDisplay && enabled
+    }
+
+    /// Reveals a window that opened parked, when the setting asks for it.
+    func revealOnStart() {
+        if Self.shouldRevealOnStart(parked: parksByDefault, onDisplay: displayScreen != nil,
+                                    enabled: Preferences.revealsOnStart) {
+            reveal()
+        }
+    }
+
+    private var pickerWatch = PickerWatch()
+    private var pickerTimer: Timer?
+    private var revealedAt = Date()
+
+    private func startWatchingPicker() {
+        stopWatchingPicker()
+        guard parksByDefault, Preferences.parksWhenPickerCloses else { return }
+        pickerWatch = PickerWatch()
+        revealedAt = Date()
+        let timer = Timer(timeInterval: PickerWatch.pollInterval, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else {
+                    timer.invalidate()
+                    return
+                }
+                self.pollPicker()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pickerTimer = timer
+    }
+
+    private func stopWatchingPicker() {
+        pickerTimer?.invalidate()
+        pickerTimer = nil
+    }
+
+    private func pollPicker() {
+        let park = pickerWatch.poll(bannerShown: PickerBanner.currentlyShown(),
+                                    age: Date().timeIntervalSince(revealedAt))
+        if park, !Self.shouldPostponeRepark(pressedButtons: Int(NSEvent.pressedMouseButtons)) {
+            repark()
+        }
+    }
+
+    /// Whether a picker banner has been seen since the last reveal.
+    var pickerWasSeen: Bool { pickerWatch.seen }
+
+    func repark() {
+        pendingRepark?.cancel()
+        pendingRepark = nil
+        stopWatchingPicker()
+        level = .normal
+        parks = parksByDefault
+        if parksByDefault { canvasChanged() }
+    }
+
+    public override func close() {
+        pendingRepark?.cancel()
+        pendingRepark = nil
+        stopWatchingPicker()
+        if displayScreen == nil { level = .normal }
+        super.close()
     }
 
     /// Fills the display again after its size or position changed. No-op for a window.

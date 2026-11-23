@@ -33,6 +33,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         public var requestAccess: () -> Void = {}
         public var toggleMirroring: () -> Void = {}
         public var togglePause: () -> Void = {}
+        public var showOutputWindow: () -> Void = {}
         public var toggleEditRegion: () -> Void = {}
         public var toggleDraw: () -> Void = {}
         public var toggleFollowFocus: () -> Void = {}
@@ -62,6 +63,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     private let accessItem: ActionMenuItem
     private let mirroringItem: ActionMenuItem
     private let pauseItem: ActionMenuItem
+    private let showOutputItem: ActionMenuItem
     private let editItem: ActionMenuItem
     private let drawItem: ActionMenuItem
     private let followItem: ActionMenuItem
@@ -90,6 +92,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         pauseItem = ActionMenuItem("Pause", key: "p",
                                    modifiers: [.control, .option, .command],
                                    handler: actions.togglePause)
+        showOutputItem = ActionMenuItem("Show Output Window", handler: actions.showOutputWindow)
         editItem = ActionMenuItem("Edit Region", handler: actions.toggleEditRegion)
         drawItem = ActionMenuItem("Draw", key: "d",
                                   modifiers: [.control, .option, .command],
@@ -114,7 +117,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false   // otherwise AppKit overrides our isEnabled flags
 
-        [accessItem, mirroringItem, pauseItem, editItem, drawItem, followItem, aspectItem].forEach(menu.addItem)
+        [accessItem, mirroringItem, pauseItem, showOutputItem, editItem, drawItem, followItem, aspectItem].forEach(menu.addItem)
         menu.addItem(presetItem)
         menu.addItem(spanItem)
         menu.addItem(.separator())
@@ -150,6 +153,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         let items: [String: NSMenuItem] = [
             "toggle-mirroring": mirroringItem,
             "toggle-pause": pauseItem,
+            "show-output-window": showOutputItem,
             "screenshot": screenshotItem,
             "toggle-recording": recordItem,
             "toggle-draw": drawItem,
@@ -226,6 +230,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         mirroringItem.state = state.isMirroring ? .on : .off
         pauseItem.isEnabled = state.canPause
         pauseItem.state = state.isPaused ? .on : .off
+        showOutputItem.isEnabled = state.showsOutputWindow
         // Region controls stay live with mirroring off: placing the region is a setup
         // task you do before joining a call, not something gated on capture running.
         editItem.isEnabled = true

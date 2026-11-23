@@ -152,6 +152,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         actions.requestAccess = { [weak self] in self?.run("request-access") }
         actions.toggleMirroring = { [weak self] in self?.run("toggle-mirroring") }
         actions.togglePause = { [weak self] in self?.run("toggle-pause") }
+        actions.showOutputWindow = { [weak self] in self?.run("show-output-window") }
         actions.toggleEditRegion = { [weak self] in self?.run("toggle-edit-region") }
         actions.toggleDraw = { [weak self] in self?.run("toggle-draw") }
         actions.toggleFollowFocus = { [weak self] in self?.run("toggle-follow-focus") }
@@ -213,6 +214,14 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         commands.register("set-pause", "Pause on or off: on=true|false") { [weak self] args in
             guard let self else { return nil }
             if try args.bool("on") != state.isPaused { togglePause() }
+            return nil
+        }
+        commands.register("show-output-window",
+                          "Bring the output window on screen and to the front without taking focus") {
+            [weak self] _ in
+            guard let self else { return nil }
+            guard state.showsOutputWindow, let outputWindow else { throw CaptureFailure.windowGone }
+            outputWindow.reveal()
             return nil
         }
         commands.register("toggle-edit-region", "Show or hide the movable region frame",
@@ -946,6 +955,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
                                   displayScreen: screen)
         window.canvasChanged()
         window.show()
+        window.revealOnStart()
         outputWindow = window
         moveRegionOffVirtualDisplay()
     }
@@ -1180,6 +1190,9 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             out.append("  level: \(window.level.rawValue) screen: "
                        + "\(window.screen?.displayID.map(String.init) ?? "none")"
                        + " virtual display: \(virtualScreen.map { String($0.displayID) } ?? "none")")
+            out.append("  park when picker closes: \(Preferences.parksWhenPickerCloses ? "on" : "off"),"
+                       + " picker banner on screen now: \(PickerBanner.currentlyShown()),"
+                       + " seen since reveal: \(window.pickerWasSeen)")
         } else {
             out.append("  none")
         }
