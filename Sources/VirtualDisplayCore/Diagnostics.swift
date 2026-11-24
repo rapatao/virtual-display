@@ -11,6 +11,9 @@ public enum Diagnostics {
         out.append("build: \(version ?? "unknown")")
         out.append("macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)")
         out.append("screen recording (this process): \(CGPreflightScreenCaptureAccess())")
+        out.append("share as a display: \(Preferences.sharesAsDisplay ? "on" : "off"), "
+                   + "virtual display supported here: "
+                   + "\(VirtualScreen.isSupported(version: ProcessInfo.processInfo.operatingSystemVersion))")
 
         let apps = NSWorkspace.shared.runningApplications.filter {
             $0.bundleIdentifier == "com.rapatao.virtual-display"
@@ -40,11 +43,29 @@ public enum Diagnostics {
             for w in mine {
                 let b = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
                 let num = { (k: String) in Int((b[k] as? Double) ?? 0) }
-                // Layer 0 is the output window, the only one a picker can ever offer.
-                // The region frame is .floating, so it sits at layer 3.
                 let layer = w[kCGWindowLayer as String] as? Int ?? -1
-                let role = layer == 0 ? "OUTPUT WINDOW (the shareable one)"
-                                      : "region frame (never shareable)"
+                // Titles are not readable without Screen Recording, so the layer and size
+                // stand in when there is none: the menu bar strips AppKit keeps per display
+                // are layer 0 but only a few dozen points tall.
+                let name = (w[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let isOutput = name.map { $0 == "Virtual Display" }
+                    ?? (layer == Int(CGWindowLevelForKey(.screenSaverWindow))
+                        || layer == OutputWindow.revealedLevel.rawValue
+                        || (layer == 0 && num("Height") > 100))
+                let role: String
+                if isOutput {
+                    role = "OUTPUT WINDOW (the shareable one)"
+                } else if let name {
+                    role = "other window \"\(name)\""
+                } else {
+                    switch layer {
+                    case 0: role = "system strip (menu bar or similar)"
+                    case 3: role = "region frame (never shareable)"
+                    case 4: role = "drawing toolbar"
+                    case 25: role = "HUD or status item"
+                    default: role = "other window (layer \(layer))"
+                    }
+                }
                 out.append("  \(role)")
                 out.append("  layer=\(w[kCGWindowLayer as String] as? Int ?? -1)"
                     + " onscreen=\(w[kCGWindowIsOnscreen as String] as? Bool ?? false)"
@@ -61,7 +82,16 @@ public enum Diagnostics {
         out.append("")
         out.append("screens:")
         for s in NSScreen.screens {
-            out.append("  \(s.frame) visible \(s.visibleFrame)")
+            let isVirtual = s.displayID.map {
+                CGDisplayVendorNumber($0) == VirtualScreen.vendorID
+                    && CGDisplayModelNumber($0) == VirtualScreen.productID
+            } ?? false
+            out.append("  \(s.frame) visible \(s.visibleFrame)" + (isVirtual ? " VIRTUAL SCREEN" : ""))
+            if isVirtual, let id = s.displayID {
+                out.append("    active=\(CGDisplayIsActive(id) != 0) asleep=\(CGDisplayIsAsleep(id) != 0)"
+                           + " online=\(CGDisplayIsOnline(id) != 0)"
+                           + " mirrored=\(CGDisplayIsInMirrorSet(id) != 0)")
+            }
         }
         return out.joined(separator: "\n")
     }

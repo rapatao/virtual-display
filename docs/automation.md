@@ -18,6 +18,7 @@ shortcut or a plugin they do not.
 | --- | --- |
 | `toggle-mirroring`, `set-mirroring` | `on=true\|false` |
 | `toggle-pause`, `set-pause` | `on=` |
+| `show-output-window` | |
 | `toggle-edit-region`, `set-edit-region` | `on=` |
 | `toggle-draw`, `set-draw` | `on=` |
 | `undo-drawing`, `clear-drawing` | |

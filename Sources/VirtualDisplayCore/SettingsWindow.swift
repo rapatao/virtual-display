@@ -67,12 +67,15 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
         let model = SettingsModel(environment: environment)
         model.tab = SettingsView.Tab(name: tab) ?? .presets
         self.model = model
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 480),
+        let visible = NSScreen.main?.visibleFrame.height ?? 800
+        let height = min(max(560, min(680, visible - 100)), visible)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: height),
                               styleMask: [.titled, .closable, .resizable],
                               backing: .buffered,
                               defer: false)
         window.title = "Virtual Display Settings"
         window.contentView = NSHostingView(rootView: SettingsView(model: model))
+        window.contentMinSize = SettingsView.minimumSize
         window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -365,6 +368,8 @@ final class SettingsModel: ObservableObject {
 }
 
 struct SettingsView: View {
+    static let minimumSize = NSSize(width: 640, height: 560)
+
     @ObservedObject var model: SettingsModel
 
     enum Tab: String, CaseIterable, Identifiable {
@@ -424,21 +429,30 @@ struct SettingsView: View {
                 .padding(16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(minWidth: 560, minHeight: 420)
+        .frame(minWidth: Self.minimumSize.width, minHeight: Self.minimumSize.height)
     }
 
     @ViewBuilder private var pane: some View {
         switch model.tab {
         case .presets: PresetsTab(model: model)
-        case .output: OutputTab(model: model)
+        case .output: scrolling(OutputTab(model: model))
         case .shortcuts: ShortcutsTab(model: model)
         case .follow: FollowTab(model: model)
         case .privacy: PrivacyTab(model: model)
-        case .captures: CapturesTab(model: model)
+        case .captures: scrolling(CapturesTab(model: model))
         case .automation: AutomationTab(model: model)
         case .plugins: PluginsTab(model: model)
-        case .about: AboutTab(model: model)
+        case .about: scrolling(AboutTab(model: model))
         }
+    }
+
+    /// For the panes that are plain stacks of controls: the ones that hold a list or a
+    /// scroll view of their own already fill the pane instead.
+    private func scrolling<Content: View>(_ content: Content) -> some View {
+        ScrollView {
+            content.frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .scrollIndicators(.visible)
     }
 }
 
@@ -463,6 +477,7 @@ private struct PresetsTab: View {
                         .tag(index)
                 }
             }
+            .scrollIndicators(.visible)
             .border(.separator)
 
             HStack {
@@ -529,6 +544,10 @@ private struct OptionalNumberField: View {
 private struct OutputTab: View {
     @ObservedObject var model: SettingsModel
     @AppStorage(Preferences.Key.parkOutputWindow.rawValue) private var parksOutputWindow = false
+    @AppStorage(Preferences.Key.shareAsDisplay.rawValue) private var sharesAsDisplay = false
+    @AppStorage(Preferences.Key.revealOnStart.rawValue) private var revealsOnStart = true
+    @AppStorage(Preferences.Key.revealSeconds.rawValue) private var revealSeconds = 30
+    @AppStorage(Preferences.Key.parkWhenPickerCloses.rawValue) private var parksWhenPickerCloses = true
 
     /// The sizes offered. A hand-edited `output` outside this list is added to it, so the
     /// picker always has the current value to select.
@@ -601,12 +620,65 @@ private struct OutputTab: View {
 
             Divider()
 
+            Toggle("Share as a display (experimental)", isOn: $sharesAsDisplay)
+                .toggleStyle(.switch)
+            Text("Mirroring creates a virtual display filled with the output. It joins "
+                 + "your display arrangement, so the pointer can move onto it. Needs macOS "
+                 + "14 to 27; otherwise the output window opens. Takes effect the next "
+                 + "time mirroring starts. Chrome's click-to-pick picker (the "
+                 + "ScreenCaptureKit one) did not offer it in testing; with that Chrome "
+                 + "flag disabled, Chrome lists it as a screen, which it names Screen 2. "
+                 + "The output window is the recommended way and works with the picker.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Toggle("Open the output window off screen", isOn: $parksOutputWindow)
                 .toggleStyle(.switch)
-            Text("Mirroring opens the output window past the bottom-right corner of the "
-                 + "screen with only a corner showing, which is all a share picker needs. "
-                 + "The meeting still gets the whole picture. Takes effect the next time "
-                 + "mirroring starts.")
+                .disabled(sharesAsDisplay)
+            Text("The output window parks past the bottom-right corner of the screen with "
+                 + "only a corner showing, which is enough for it to be listed. The meeting "
+                 + "still gets the whole picture. Unless it is brought on screen for a while "
+                 + "when mirroring starts (below) or with Show Output Window, it stays "
+                 + "parked. Takes effect the next time mirroring starts.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Show the window when mirroring starts", isOn: $revealsOnStart)
+                .toggleStyle(.switch)
+                .disabled(!parksOutputWindow || sharesAsDisplay)
+            HStack {
+                Text("Stays visible for")
+                TextField("30", value: Binding(
+                    get: { revealSeconds },
+                    set: {
+                        let range = Preferences.revealSecondsRange
+                        revealSeconds = Int(min(max(Double($0), range.lowerBound), range.upperBound))
+                    }), format: .number.grouping(.never))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 60)
+                    .multilineTextAlignment(.trailing)
+                Text("seconds (5 to 300)").foregroundStyle(.secondary)
+            }
+            .disabled(!parksOutputWindow || sharesAsDisplay || !revealsOnStart)
+            Text("The off screen window comes on screen when mirroring starts, so its "
+                 + "picker's Share button can be reached, then parks again. Show Output "
+                 + "Window in the menu, or its shortcut, does the same on demand. Turning "
+                 + "this on or off applies from the next mirroring start; the time applies "
+                 + "from the next time the window is shown.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Park the window when the picker closes", isOn: $parksWhenPickerCloses)
+                .toggleStyle(.switch)
+                .disabled(!parksOutputWindow || sharesAsDisplay)
+            Text("While the window is shown, it parks at once when a strip like the one "
+                 + "Chrome's window picker draws (observed with Chrome 158) has appeared "
+                 + "on screen and then gone away, instead of waiting out the time above, "
+                 + "which still applies if no such strip appears. It relies on how that "
+                 + "picker looks, so turn it off if the window parks too early. Applies "
+                 + "from the next time the window is shown.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()
@@ -632,22 +704,20 @@ private struct ShortcutsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Click a shortcut and press the keys you want. Recording a shortcut for "
-                 + "an action replaces its default. The last row binds any command, with "
-                 + "arguments in URL query form.")
+                 + "an action replaces its default. Bind another command below to give any "
+                 + "command a shortcut, with arguments in URL query form.")
                 .font(.callout).foregroundStyle(.secondary)
 
             ScrollView {
-                VStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
                     ForEach(builtIns, id: \.0) { command, title, fallback in
                         HStack {
-                            Text(title)
-                            Spacer()
-                            ShortcutField(
-                                spec: model.config.hotkeys.first { $0.value == command }?.key,
-                                placeholder: fallback,
-                                onRecord: { model.bind($0, to: command) },
-                                onClear: { spec in model.unbind(spec) },
-                                setSuspended: { model.environment.setShortcutsSuspended($0) })
+                            Text(title).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            field(spec: model.config.hotkeys.first { $0.value == command }?.key,
+                                  placeholder: fallback,
+                                  onRecord: { model.bind($0, to: command) },
+                                  onClear: { model.unbind($0) })
                         }
                     }
 
@@ -659,24 +729,33 @@ private struct ShortcutsTab: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 0) {
                                 Text(model.describe(command).title)
+                                    .fixedSize(horizontal: false, vertical: true)
                                 Text(command).font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
                             }
-                            Spacer()
-                            ShortcutField(
-                                spec: spec,
-                                placeholder: spec,
-                                onRecord: { model.bind($0, to: command) },
-                                onClear: { model.unbind($0) },
-                                setSuspended: { model.environment.setShortcutsSuspended($0) })
+                            Spacer(minLength: 8)
+                            field(spec: spec, placeholder: spec,
+                                  onRecord: { model.bind($0, to: command) },
+                                  onClear: { model.unbind($0) })
                             Button("Remove") { model.unbind(spec) }
                         }
                     }
                     addRow
                 }
-                .padding(.trailing, 4)
+                .padding(.trailing, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollIndicators(.visible)
         }
+    }
+
+    private func field(spec: String?, placeholder: String,
+                       onRecord: @escaping (String) -> Void,
+                       onClear: @escaping (String) -> Void) -> some View {
+        ShortcutField(spec: spec, placeholder: placeholder, onRecord: onRecord, onClear: onClear,
+                      setSuspended: { model.environment.setShortcutsSuspended($0) })
+            .frame(minWidth: 110, idealWidth: 170, maxWidth: 170)
     }
 
     @State private var newCommand = "set-size"
@@ -684,31 +763,47 @@ private struct ShortcutsTab: View {
 
     private var addRow: some View {
         let hint = model.describe(newCommand).arguments
-        return VStack(alignment: .leading, spacing: 4) {
+        let commands = model.commandCatalog
+            .map { (name: $0.name, title: model.describe($0.name).title) }
+            .sorted { $0.title < $1.title }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Bind another command").font(.headline)
             HStack {
-                Picker("", selection: $newCommand) {
-                    ForEach(model.commandCatalog
-                        .map { (name: $0.name, title: model.describe($0.name).title) }
-                        .sorted { $0.title < $1.title }, id: \.name) {
-                        Text($0.title).tag($0.name)
+                Text("Command").frame(width: 80, alignment: .leading)
+                Menu {
+                    Picker("Command", selection: $newCommand) {
+                        ForEach(commands, id: \.name) { Text($0.title).tag($0.name) }
                     }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } label: {
+                    Text(commands.first { $0.name == newCommand }?.title ?? "Choose a command")
+                        .lineLimit(1).truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .labelsHidden()
-                .fixedSize()
-                Spacer()
-                ShortcutField(
-                    spec: nil,
-                    placeholder: "Record shortcut",
-                    onRecord: {
-                        model.bind($0, to: newCommand, arguments: newArguments)
-                        newArguments = ""
-                    },
-                    onClear: { _ in },
-                    setSuspended: { model.environment.setShortcutsSuspended($0) })
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("Command")
             }
-            TextField(hint ?? "No arguments", text: $newArguments)
-            Text(newCommand).font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("Arguments").frame(width: 80, alignment: .leading)
+                TextField(hint ?? "No arguments", text: $newArguments)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Arguments")
+            }
+            Text(hint.map { "\(newCommand) takes arguments in URL query form: \($0)" }
+                 ?? "\(newCommand) lists no arguments.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                field(spec: nil, placeholder: "Record shortcut",
+                      onRecord: {
+                          model.bind($0, to: newCommand, arguments: newArguments)
+                          newArguments = ""
+                      },
+                      onClear: { _ in })
+                    .disabled(!commands.contains { $0.name == newCommand })
+            }
         }
     }
 }
@@ -882,6 +977,7 @@ private struct AppListEditor: View {
                 .padding(.vertical, 2)
             }
         }
+        .scrollIndicators(.visible)
         .border(.separator)
 
         HStack {
@@ -1067,6 +1163,7 @@ private struct AutomationTab: View {
                 .padding(.vertical, 1)
             }
         }
+        .scrollIndicators(.visible)
         .border(.separator)
         .frame(minHeight: 120)
     }
@@ -1157,6 +1254,7 @@ private struct PluginsTab: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                     }
+                    .scrollIndicators(.visible)
                     .frame(maxHeight: 120)
                 }
             }
@@ -1189,6 +1287,7 @@ private struct PluginsTab: View {
                     .padding(.vertical, 1)
                 }
             }
+            .scrollIndicators(.visible)
             .border(.separator)
             .frame(minHeight: 90)
         }

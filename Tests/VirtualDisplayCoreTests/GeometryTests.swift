@@ -37,6 +37,34 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(Geometry.appKitRect(fromCG: there, primaryHeight: 1440), start)
     }
 
+    func testSourceRectOffTheDisplayIsClampedOntoIt() {
+        let size = CGSize(width: 1920, height: 1080)
+        let inside = CGRect(x: 100, y: 100, width: 640, height: 360)
+        XCTAssertEqual(Geometry.onDisplay(inside, displaySize: size), inside)
+        let straddling = CGRect(x: 1800, y: 100, width: 640, height: 360)
+        XCTAssertEqual(Geometry.onDisplay(straddling, displaySize: size), straddling)
+        let off = CGRect(x: 2500, y: -900, width: 640, height: 360)
+        XCTAssertEqual(Geometry.onDisplay(off, displaySize: size),
+                       CGRect(x: 1280, y: 0, width: 640, height: 360))
+    }
+
+    func testSourceRectNeverGrowsPastTheRegion() {
+        let size = CGSize(width: 1920, height: 1080)
+        let off = CGRect(x: 5000, y: 5000, width: 800, height: 450)
+        XCTAssertEqual(Geometry.onDisplay(off, displaySize: size).size, off.size)
+    }
+
+    func testPlacingALockedRegionKeepsItsAspectInsideTheScreen() {
+        let screen = CGRect(x: 0, y: 0, width: 1000, height: 500)
+        let proposed = CGRect(x: 2000, y: 2000, width: 800, height: 800)
+        let aspect = CGSize(width: 16, height: 9)
+        let placed = Geometry.placed(proposed, into: screen, aspect: aspect)
+        XCTAssertTrue(screen.contains(placed))
+        XCTAssertEqual(placed.width / placed.height, 16.0 / 9.0, accuracy: 0.02)
+        XCTAssertEqual(Geometry.placed(proposed, into: screen, aspect: nil),
+                       Geometry.clamp(proposed, into: screen))
+    }
+
     // MARK: Clamping
 
     private let visible = CGRect(x: 0, y: 80, width: 1920, height: 963)

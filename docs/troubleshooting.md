@@ -11,19 +11,79 @@ clipboard and shows it. Without the GUI:
 
 ## "Virtual Display" is missing from the meeting's share list
 
-- Pick the **Window** tab, not Entire Screen / Display.
-- Mirroring must be on: the output window exists only then. Seeing the red/green region
-  frame does not mean the output window is open.
-- The output window must be at least partly on screen and not minimised.
+- In window mode, pick the **Window** tab, not Entire Screen / Display.
+- Quickest workaround, user-reported with Chrome: open `chrome://flags`, disable **Use
+  ScreenCaptureKit picker for stream selection**, and relaunch Chrome. That restores
+  Chrome's older list picker.
+- With that flag enabled, Chrome uses macOS's native picker. That picker was reported to be
+  click-to-pick: click a window on screen, then press **Share This Window**. In that picker
+  the output window was reported to be pickable only while its centre is on screen and not
+  covered. Before it was raised above the region frame, the region frame covered it and
+  prevented picking (observed). **Show Output Window** brings it on screen, and so does
+  mirroring start when **Show the window when mirroring starts** is on and the off-screen
+  setting is on.
+- With [Share as a display](usage.md#share-as-a-display) on (experimental), pick the virtual
+  display under **Screen** only if the picker lists it. In the native picker, the **Share**
+  button may appear in the middle of the chosen screen. If you cannot see it, check that
+  screen, which can mean moving the pointer onto the virtual display.
+- Mirroring must be on: the output window, or the virtual display in that mode, exists
+  only then. Seeing the red/green region frame does not mean either is up.
+- In window mode, the output window must be at least partly on screen and not minimised.
+  A parked window comes back with **Show Output Window**, or at mirroring start when
+  **Show the window when mirroring starts** is on.
+- A window that opened off screen, when shown by **Show Output Window** or at mirroring
+  start, parks early once a strip like the one Chrome's window picker was observed to draw
+  has appeared and gone away (**Park the window when the picker closes**). If it does not
+  park then, the **Stays visible for** time applies. If it parks too early, turn that
+  setting off under **Settings... > Output**.
 
-In the report, the output window must appear under `on-screen normal windows` with
+In window mode, the output window must appear under `on-screen normal windows` with
 `onscreen=true`. If it does, the conferencing app is excluding it. If it appears only under
-`all windows incl. off-screen`, it is outside every display.
+`all windows incl. off-screen`, it is outside every display. With Share as a display on, the
+output window should appear in the report's window list, and the `screens:` list should
+include a line ending in `VIRTUAL SCREEN`.
 
 | Window | Layer | Shareable |
 | --- | --- | --- |
-| Region frame (red/green rectangle) | 3, floating | **Never.** Pickers offer layer 0 only, and it is excluded from capture |
-| Output window (titled Virtual Display) | 0 | **Yes.** Pick this one |
+| Region frame (red/green rectangle) | 3, floating | Not offered by the list picker, which offered layer 0 windows only (earlier observation). It is excluded from capture |
+| Output window (titled Virtual Display), at its normal level | 0 | **Yes** in the list picker. Pick this one |
+| Output window while revealed | 5, above the region frame and drawing toolbar | Reported pickable in Chrome's native picker while its centre is on screen and not covered |
+| Output window in display mode (fills the virtual display) | screen saver level | Not picked as a window. Pick the virtual display under **Screen**, if the picker lists it |
+
+## An extra display appears, or the pointer lands on it
+
+With [Share as a display](usage.md#share-as-a-display) on, the virtual display is a real
+display while mirroring runs. It has a place in **System Settings > Displays**, and the
+pointer crosses onto it at that edge of the arrangement. Move it in that pane to change
+where that is. A region on it is moved onto a real display when the output window is shown
+there, whenever the screen layout changes, and after a move onto it ends. Stopping
+mirroring removes it. A change to the setting takes effect the next time mirroring starts,
+so a display still showing while mirroring runs is expected.
+
+The display has fixed vendor, product and serial numbers, so macOS remembers its place in
+the arrangement and any choice to make it the main display or to mirror it. If it was made
+the main display or is mirrored, starting mirroring falls back to the window and shows one of
+the messages above. Its arrangement and mirroring can be changed in **System Settings >
+Displays**.
+
+## Fallback to a window
+
+When the virtual display cannot be used, the output window is used instead. The first three
+messages mean that. The HUD shows each one at that moment, and the same line goes to the
+log. The last reports a failed resize rather than a fallback:
+
+| HUD message | Cause | What to do |
+| --- | --- | --- |
+| Share as a display is unavailable, using a window | macOS outside 14 through 27, or the private display API is missing or refused to create the display | Pick the **Window** tab. `--doctor` shows `virtual display supported here: false` on an unsupported macOS |
+| The virtual display did not appear, using a window | It was not published within about 2 seconds of being created, or it was already offline, mirrored, or the main display when the window was to be shown | Pick the **Window** tab. Starting mirroring again tries the display once more |
+| The virtual display went away, using a window | It went offline, was mirrored onto another display, or became the main display, during the session | The window stays for the rest of the session. The next start tries the display again |
+| The virtual display could not be resized | Changing the output size did not resize it | Stop and start mirroring to create it at the new size |
+
+When the display goes offline, is mirrored, or becomes the main display, a recording in
+progress is stopped and finalised as the window replaces the display.
+
+The report's `share as a display:` line shows the setting and whether this macOS supports
+it. The `screens:` list marks the virtual display with `VIRTUAL SCREEN`.
 
 ## Nothing appears in the output window
 

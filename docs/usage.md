@@ -10,8 +10,9 @@ First-time setup is the [quick start](../README.md#quick-start) in the README.
 | Item | Behaviour |
 | --- | --- |
 | **Allow Screen Recording...** | Only visible when permission is missing. Raises the system prompt on first use, then deep-links to the Settings pane. |
-| **Mirroring** | Starts and stops capture, and opens/closes the output window. Disabled while permission is missing. |
+| **Mirroring** | Starts and stops capture, and opens/closes the output window, or the virtual display when [Share as a display](#share-as-a-display) is on. Disabled while permission is missing. |
 | **Pause** | Blanks the share without closing the output window, so the meeting keeps it selected. |
+| **Show Output Window** | Puts the output window fully on screen, even one opened off screen, and in front, without focusing it. The window is 1:1 unless that is larger than the screen, in which case it is shrunk to fit. It is placed above the region frame and the drawing toolbar while shown. After the **Stays visible for** time in **Settings... > Output** (30 seconds by default) it returns to the normal level, and a window that opened off screen parks again; both wait while a mouse button is held down. For a window that opened off screen, with **Park the window when the picker closes** on (the default), it also parks once a strip like the one Chrome 158's window picker was observed to draw has appeared on screen and gone away, without waiting for that time. With **Show the window when mirroring starts** on (the default), an off-screen window is shown this way once when mirroring starts, then parks again. With [Share as a display](#share-as-a-display) on it only brings the window to the front. Only enabled while mirroring. |
 | **Edit Region** | On: the frame is red, draggable and resizable. Off: green and click-through. |
 | **Draw** | Draw over the region, see [Drawing](#drawing). |
 | **Follow Focused Window** | The region follows the front window, see [below](#follow-focused-window). |
@@ -55,7 +56,8 @@ feedback while another app is focused. The HUD is never captured.
 
 Rebind them in **Settings... > Shortcuts** or under `hotkeys` in
 [config.json](configuration.md#configjson). A binding there takes the key from the
-built-in; the action keeps its menu item.
+built-in; the action keeps its menu item. **Show Output Window** has no default shortcut;
+bind `show-output-window` there to give it one.
 
 ## Drawing
 
@@ -182,26 +184,85 @@ Entries match like `followIgnores`. Leaving the key out keeps the default;
 `"excludedApps": []` hides nothing, banners included. An app launched while mirroring is
 hidden as soon as it starts.
 
+## Share as a display (experimental)
+
+Off by default. With **Settings... > Output > Share as a display** on, mirroring creates a
+display named "Virtual Display" and shows the output full screen on it. The output window
+is the normal way to share, picked under **Window**. Share as a display is experimental:
+a share picker may or may not offer the display under **Screen**.
+
+Observed in Chrome (user-reported, not confirmed from the code):
+
+- With the flag **Use ScreenCaptureKit picker for stream selection** enabled at
+  `chrome://flags`, Chrome's picker did not list the virtual display. The flag's description
+  reads: "This feature opens a native picker in macOS 15+ to allow the selection of a window
+  or screen that will be captured." The native picker was reported to be click-to-pick:
+  click a window on screen, then press **Share This Window**.
+- Disabling the flag restores Chrome's older list picker. Whether that picker lists the
+  virtual display was not confirmed.
+- Chrome names the display "Screen 2" in its own list. macOS shows it as "Virtual Display"
+  in **System Settings > Displays**.
+- In the native picker, the output window was reported to be pickable only when its centre
+  is on screen and not covered. **Show Output Window** and the reveal at mirroring start
+  exist for that.
+
+- The display is 1x, not HiDPI, and exactly the output size in pixels: 1920 x 1080 by
+  default, at 60 Hz. The picture is one canvas pixel per display pixel.
+- It joins your display arrangement, so it appears in **System Settings > Displays** and
+  the pointer can move onto it. The output window fills the display, has no border, stays
+  above other windows, the menu bar and the Dock, and ignores the mouse, so it cannot be
+  dragged or clicked.
+- The display exists only while mirroring. It is created when mirroring starts and removed
+  once the picture is blanked when mirroring stops. **Pause** keeps it. Changing the
+  [output size](configuration.md#output-size) resizes it in place.
+- A region on the virtual display is moved onto a real display when the output window is
+  shown on the virtual display, whenever the screen layout changes, and 0.3 seconds after
+  any move of the region onto it, once the mouse button is up. The check repeats every 0.3
+  seconds while the button is held. The target is the main display if it is real, otherwise the
+  first other real screen. The move keeps the region fully inside that screen's visible
+  area, shrinking it first if it is larger, and with Lock Region Aspect on, the region is
+  kept to the output's aspect ratio. While a region is dragged onto the virtual display,
+  capture targets the main display, and its rectangle is used as it lies on that display: a
+  rectangle that overlaps the main display is captured as it is, and one with no overlap is
+  moved onto the main display at its own size, or shrunk to fit if it is larger than the
+  display. Keep the region on a real display.
+- **Settings... > Output > Open the output window off screen** is ignored while this is on,
+  and its toggle is disabled.
+- The setting takes effect the next time mirroring starts.
+- In Chrome's list picker, the virtual display is the entry to look for under **Screen**,
+  if that picker lists it at all (see the observations above). In Chrome's native picker, the
+  **Share** button may appear in the middle of the chosen screen. If you cannot see it, check
+  that screen, which can mean moving the pointer onto the virtual display.
+- It needs macOS 14 through 27. Outside that range, or if the display cannot be created,
+  or if it does not appear within about 2 seconds, or if it goes offline, is mirrored onto
+  another display, or becomes the main display during a session, the output window is used
+  instead and the HUD says so. A recording in progress when the display goes offline, is
+  mirrored, or becomes the main display is stopped and finalised as the window replaces it.
+  See [Fallback to a window](troubleshooting.md#fallback-to-a-window).
+
 ## Behaviour notes
 
 **The app's own windows are never captured.** The output window can overlap the region
 without an infinite mirror, and the frame, alerts, settings and HUD never reach the share.
 
 **The output window exists only while mirroring.** It is the thing the meeting shares, so
-turning mirroring off ends the share; re-enable and pick the window again. To hide
-something mid-call, use **Pause**: the window stays selected and the share goes black, or
-holds the last frame with **Freeze the last frame when paused** on.
+turning mirroring off ends the share; re-enable and pick it again. With
+[Share as a display](#share-as-a-display) on, the virtual display follows the same rule.
+To hide something mid-call, use **Pause**: the window stays selected and the share goes
+black, or holds the last frame with **Freeze the last frame when paused** on.
 
 **Size the output window 1:1.** It opens at one canvas pixel per screen pixel (960 x 540
 points for 1920x1080 on Retina). Meetings share the window's pixels, so a smaller window is
-shared upscaled and soft. It may sit behind other windows.
+shared upscaled and soft. It may sit behind other windows. With Share as a display on, the
+display is 1x and the window fills it, so there is nothing to size.
 
 **Never minimise it.** A minimised window is dropped from every share picker. It has no
 minimise button for that reason.
 
-**No title bar.** The picture goes edge to edge; drag the window by the picture. The window
-keeps the title "Virtual Display", which is what share pickers list. macOS rounds its top
-corners, which the meeting shows as a few black pixels.
+**No title bar.** In window mode the picture goes edge to edge; drag the window by the
+picture. The window keeps the title "Virtual Display", which is what a window picker lists.
+The display is named "Virtual Display" as well. In window mode macOS rounds the top corners
+of the window, which the meeting shows as a few black pixels.
 
 **The frame is independent of mirroring.** It shows while editing or mirroring, so you can
 place the region before a call.

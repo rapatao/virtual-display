@@ -21,8 +21,8 @@ All of these live outside the app bundle, so upgrades leave them alone.
 | Section | Does |
 | --- | --- |
 | Presets | Your presets. **Add Current Size** / **Add Current Region** capture the region, without or with its position |
-| Output | The [output size](#output-size), [aspect lock](usage.md#aspect-lock), freeze on pause, and opening the output window off screen |
-| Shortcuts | Click one, press the keys. Escape cancels, Delete clears. The last row binds any [command](automation.md#commands-and-the-url-scheme), with arguments in URL query form |
+| Output | The [output size](#output-size), [aspect lock](usage.md#aspect-lock), freeze on pause, [share as a display](usage.md#share-as-a-display) (experimental), opening the output window off screen, which is ignored while share as a display is on, showing that window when mirroring starts and for how long (5 to 300 seconds), and parking an off-screen window early when the window picker closes |
+| Shortcuts | Click one, press the keys. Escape cancels, Delete clears. **Bind another command** at the bottom binds any [command](automation.md#commands-and-the-url-scheme) to a shortcut, with arguments in URL query form |
 | Follow | The [Follow Focused Window](usage.md#follow-focused-window) switch and the apps it skips. **Add App** picks from running apps |
 | Privacy | The [apps hidden from the share](usage.md#hidden-apps) |
 | Captures | Screenshot and recording folders, and microphone audio |
@@ -108,6 +108,11 @@ Stored in `UserDefaults` under `com.rapatao.virtual-display`:
 | `showsCursor` | Show Cursor in Share toggle |
 | `highlightClicks` | Highlight Clicks in Share toggle. Absent means off |
 | `lockAspect` | Lock Region Aspect toggle. Absent means off |
+| `parkOutputWindow` | Open the output window off screen, set under **Output**. Absent means off. Not a `config.json` key. Ignored while `shareAsDisplay` is on |
+| `shareAsDisplay` | [Share as a display](usage.md#share-as-a-display) toggle, set under **Output**. Absent means off. Not a `config.json` key. While it is on, the off-screen parking setting (`parkOutputWindow`) is ignored |
+| `revealOnStart` | Show the window when mirroring starts, set under **Output**. Absent means on. Not a `config.json` key. Only applies to an output window opened off screen |
+| `revealSeconds` | How long that window stays on screen before it parks again, set under **Output**. Absent means 30; values are held to 5 to 300 when read. Not a `config.json` key |
+| `parkWhenPickerCloses` | Park a shown output window that opened off screen as soon as a window picker strip has appeared and gone away, set under **Output**. Applies only when the off-screen setting is on. Absent means on. Not a `config.json` key |
 | `didRequestScreenRecordingAccess` | Whether the system permission prompt has been shown |
 | `enablePlugins` | Enable Plugins toggle. Absent means off |
 | `requireAutomationToken` | The [token requirement](automation.md#the-automation-token). Absent means on |

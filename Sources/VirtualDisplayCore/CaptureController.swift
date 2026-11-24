@@ -183,9 +183,10 @@ public final class CaptureController: NSObject, SCStreamDelegate, SCStreamOutput
 
     private func currentSourceRect() -> CGRect {
         guard let display, let primary = NSScreen.screens.first else { return .zero }
-        return Geometry.sourceRect(appKitRect: source.regionFrame(),
-                                   primaryHeight: primary.frame.height,
-                                   displayOrigin: display.frame.origin)
+        let rect = Geometry.sourceRect(appKitRect: source.regionFrame(),
+                                       primaryHeight: primary.frame.height,
+                                       displayOrigin: display.frame.origin)
+        return Geometry.onDisplay(rect, displaySize: display.frame.size)
     }
 
     // MARK: SCStream callbacks

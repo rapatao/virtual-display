@@ -17,6 +17,8 @@ in, which covers a one-off share inside Zoom.
   [click highlights](docs/usage.md#menu-reference) the meeting can see
 - [Hidden apps](docs/usage.md#hidden-apps): notification banners and chosen apps never
   reach the share
+- [Share as a display](docs/usage.md#share-as-a-display) (experimental), an opt-in virtual
+  display that a share picker may list under Screen instead of Window
 - [Screenshots and recording](docs/usage.md#screenshots-and-recording) of exactly what the
   meeting sees
 - [Global shortcuts](docs/usage.md#keyboard-shortcuts) that need no Accessibility permission
@@ -73,17 +75,27 @@ To build it yourself instead, see [DEVELOPMENT.md](DEVELOPMENT.md).
 3. Turn **Edit Region** off. The frame turns green and becomes click-through, so windows
    underneath stay usable.
 4. In your meeting pick Share > **Window** > **Virtual Display**. The output window opens
-   automatically with mirroring. It can sit behind everything else or be dragged mostly
-   off the edge of the display, and the meeting still gets the full picture; keep some of
-   it on screen and never minimise it. **Settings > Output > Open the output window off
-   screen** does that for you, leaving only a corner showing at the bottom right.
+   automatically with mirroring. It can sit behind everything else, and the meeting still
+   gets the full picture. Keep some of it on screen and never minimise it.
+   **Settings > Output > Open the output window off screen** moves it past the bottom-right
+   corner, with a corner showing.
+   With that setting on and **Show the window when mirroring starts** on (the default), the
+   window comes on screen when mirroring starts and then parks again.
+   **Show Output Window** in the menu brings it back.
+   In Chrome's native picker, the window was reported to be pickable only while its centre
+   is on screen and not covered.
+   If Chrome does not list the window, see the
+   [troubleshooting page](docs/troubleshooting.md#virtual-display-is-missing-from-the-meetings-share-list)
+   for a Chrome flag workaround.
+   To offer the picture as a display under Screen instead, see
+   [Share as a display](docs/usage.md#share-as-a-display), which is experimental.
 5. Drag any window into the region. It is now on the call.
 
 ## Documentation
 
 | Page | Covers |
 | --- | --- |
-| [Usage](docs/usage.md) | The menu, shortcuts, drawing, captures, presets, follow mode, hidden apps, behaviour notes |
+| [Usage](docs/usage.md) | The menu, shortcuts, drawing, captures, presets, follow mode, hidden apps, share as a display, behaviour notes |
 | [Configuration](docs/configuration.md) | The settings window, output size, `config.json`, saved state |
 | [Automation](docs/automation.md) | The `virtualdisplay://` commands and the automation token |
 | [Plugins](docs/plugins.md) | The Lua `vd` API, overlays, HTTP |

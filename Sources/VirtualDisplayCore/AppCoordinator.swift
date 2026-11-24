@@ -40,6 +40,11 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
     /// Exists only while mirroring. A share picker ends a window share when the window is
     /// destroyed, not when it is merely hidden.
     private var outputWindow: OutputWindow?
+    /// Alive from mirroring start until its window is gone, when "Share as a display" is on.
+    /// Non-nil with no window means the display is still appearing.
+    private var virtualScreen: VirtualScreen?
+    /// Seam for tests and for simulating a creation failure.
+    var makeVirtualScreen: (CGSize) -> VirtualScreen? = { VirtualScreen(canvas: $0) }
     /// Feedback for the global shortcuts, which fire with another app focused.
     private lazy var hud = HUDWindow()
     private var capture: CaptureController!
@@ -62,7 +67,10 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         capture = CaptureController(
             source: CaptureController.Source(
                 regionFrame: { [regionWindow] in regionWindow.frame },
-                regionScreen: { [regionWindow] in regionWindow.screen },
+                regionScreen: { [regionWindow, weak self] in
+                    VirtualScreen.capturable(regionWindow.screen,
+                                             excluding: self?.virtualScreen?.displayID)
+                },
                 excludesApp: { [weak self] name, bundleID in
                     self?.config.excludesFromShare(app: name, bundleID: bundleID) ?? false
                 }),
@@ -117,6 +125,12 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         loadPlugins()
         render()
 
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.screensChanged() }
+        }
+
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main
         ) { [weak self] note in
@@ -138,6 +152,7 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         actions.requestAccess = { [weak self] in self?.run("request-access") }
         actions.toggleMirroring = { [weak self] in self?.run("toggle-mirroring") }
         actions.togglePause = { [weak self] in self?.run("toggle-pause") }
+        actions.showOutputWindow = { [weak self] in self?.run("show-output-window") }
         actions.toggleEditRegion = { [weak self] in self?.run("toggle-edit-region") }
         actions.toggleDraw = { [weak self] in self?.run("toggle-draw") }
         actions.toggleFollowFocus = { [weak self] in self?.run("toggle-follow-focus") }
@@ -199,6 +214,14 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         commands.register("set-pause", "Pause on or off: on=true|false") { [weak self] args in
             guard let self else { return nil }
             if try args.bool("on") != state.isPaused { togglePause() }
+            return nil
+        }
+        commands.register("show-output-window",
+                          "Bring the output window on screen and to the front without taking focus") {
+            [weak self] _ in
+            guard let self else { return nil }
+            guard state.showsOutputWindow, let outputWindow else { throw CaptureFailure.windowGone }
+            outputWindow.reveal()
             return nil
         }
         commands.register("toggle-edit-region", "Show or hide the movable region frame",
@@ -518,6 +541,9 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         // when it is locked to the canvas.
         if config.canvasSize != OutputCanvas.size {
             OutputCanvas.size = config.canvasSize
+            if let virtualScreen, !virtualScreen.apply(canvas: OutputCanvas.size) {
+                reportDisplayProblem("The virtual display could not be resized")
+            }
             outputWindow?.canvasChanged()
             capture.canvasChanged()
         }
@@ -852,22 +878,24 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         if state.showsOutputWindow {
             if let outputWindow {
                 outputWindow.contentView?.isHidden = false
-                outputWindow.orderFront(nil)
-            } else {
-                let window = OutputWindow(sink: sink, overlay: overlay, drawing: outputDrawing)
-                window.canvasChanged()
-                window.orderFront(nil)
-                outputWindow = window
+                outputWindow.show()
+            } else if virtualScreen == nil {
+                openOutputWindow()
             }
         } else if outputWindow?.contentView?.isHidden == false {
             blankThenCloseOutputWindow()
+        } else if outputWindow == nil {
+            releaseVirtualScreen()
         }
 
         setFollowing(state.isFollowingFocus)
         setWatchingClicks(state.isHighlightingClicks)
 
         let policy: NSApplication.ActivationPolicy = state.wantsDockIcon ? .regular : .accessory
-        if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
+            if state.showsOutputWindow { outputWindow?.show() }
+        }
 
         if state.isCapturing {
             guard !capture.isRunning else { return }
@@ -890,7 +918,91 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
             guard let self, !state.showsOutputWindow else { return }
             outputWindow?.close()
             outputWindow = nil
+            releaseVirtualScreen()
         }
+    }
+
+    private func openOutputWindow() {
+        let virtual: VirtualScreen
+        switch VirtualScreen.start(wanted: Preferences.sharesAsDisplay,
+                                   canvas: OutputCanvas.size, make: makeVirtualScreen) {
+        case .window:
+            showOutputWindow(on: nil)
+            return
+        case .failed:
+            reportDisplayProblem("Share as a display is unavailable, using a window")
+            showOutputWindow(on: nil)
+            return
+        case .display(let created):
+            virtual = created
+        }
+        virtualScreen = virtual
+        Task {
+            let screen = await virtual.screen()
+            guard state.showsOutputWindow, virtualScreen === virtual, outputWindow == nil else { return }
+            if let screen, !virtual.isLost {
+                showOutputWindow(on: screen)
+            } else {
+                releaseVirtualScreen()
+                reportDisplayProblem("The virtual display did not appear, using a window")
+                showOutputWindow(on: nil)
+            }
+        }
+    }
+
+    private func showOutputWindow(on screen: NSScreen?) {
+        let window = OutputWindow(sink: sink, overlay: overlay, drawing: outputDrawing,
+                                  displayScreen: screen)
+        window.canvasChanged()
+        window.show()
+        window.revealOnStart()
+        outputWindow = window
+        moveRegionOffVirtualDisplay()
+    }
+
+    /// Capture is built from a real display, so a region left on the virtual one would
+    /// point at pixels the captured display does not have.
+    private func moveRegionOffVirtualDisplay() {
+        guard let virtualScreen,
+              VirtualScreen.isVirtual(regionWindow.screen?.displayID, virtualID: virtualScreen.displayID)
+        else { return }
+        let screens = NSScreen.screens
+        guard let index = VirtualScreen.realDisplayIndex(of: screens.map(\.displayID),
+                                                         virtualID: virtualScreen.displayID,
+                                                         mainID: CGMainDisplayID())
+        else { return }
+        let target = screens[index].visibleFrame
+        regionWindow.setFrame(Geometry.placed(regionWindow.frame, into: target,
+                                              aspect: regionWindow.lockedAspect),
+                              display: true)
+        capture.filterChanged()
+        capture.regionChanged()
+    }
+
+    private func screensChanged() {
+        moveRegionOffVirtualDisplay()
+        guard let virtualScreen, let window = outputWindow else { return }
+        guard virtualScreen.isLost else {
+            window.refitToDisplay()
+            window.show()
+            return
+        }
+        stopRecordingIfRunning()
+        window.close()
+        outputWindow = nil
+        releaseVirtualScreen()
+        reportDisplayProblem("The virtual display went away, using a window")
+        if state.showsOutputWindow { showOutputWindow(on: nil) }
+    }
+
+    private func releaseVirtualScreen() {
+        virtualScreen?.stop()
+        virtualScreen = nil
+    }
+
+    private func reportDisplayProblem(_ message: String) {
+        NSLog("virtual-display: %@", message)
+        hud.show(message, symbol: "exclamationmark.triangle")
     }
 
     // MARK: Actions
@@ -1022,8 +1134,27 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
                                             repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.syncRegion() }
         }
+        scheduleSnapBack()
         guard Date().timeIntervalSince(lastRegionSync) >= Self.regionSyncInterval else { return }
         syncRegion()
+    }
+
+    private var regionSnapBack: Timer?
+
+    /// Moves the region off the virtual display once the drag is over: while the primary
+    /// button is down the check is re-armed instead.
+    private func scheduleSnapBack() {
+        regionSnapBack?.invalidate()
+        regionSnapBack = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if NSEvent.pressedMouseButtons & 1 != 0 {
+                    self.scheduleSnapBack()
+                } else {
+                    self.moveRegionOffVirtualDisplay()
+                }
+            }
+        }
     }
 
     private func syncRegion() {
@@ -1050,6 +1181,20 @@ public final class AppCoordinator: NSObject, NSApplicationDelegate {
         if state.regionSpansDisplays {
             out.append("  WARNING: the region spans more than one display. Only the display"
                        + " it mostly covers is captured; move or shrink it.")
+        }
+        out.append("output window:")
+        if let window = outputWindow {
+            out.append("  visible: \(window.isVisible)"
+                       + " occlusion visible: \(window.occlusionState.contains(.visible))"
+                       + " on active space: \(window.isOnActiveSpace)")
+            out.append("  level: \(window.level.rawValue) screen: "
+                       + "\(window.screen?.displayID.map(String.init) ?? "none")"
+                       + " virtual display: \(virtualScreen.map { String($0.displayID) } ?? "none")")
+            out.append("  park when picker closes: \(Preferences.parksWhenPickerCloses ? "on" : "off"),"
+                       + " picker banner on screen now: \(PickerBanner.currentlyShown()),"
+                       + " seen since reveal: \(window.pickerWasSeen)")
+        } else {
+            out.append("  none")
         }
         return out.joined(separator: "\n")
     }
